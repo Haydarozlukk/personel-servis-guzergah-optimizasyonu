@@ -1,0 +1,82 @@
+name: personel-servis-optimizasyon
+
+services:
+  postgres:
+    image: postgis/postgis:17-3.5
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./infrastructure/database/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build:
+      context: ./backend/ServisOptimizasyon.Api
+    environment:
+      ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT}
+      ConnectionStrings__Postgres: Host=postgres;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}
+      Services__OptimizationUrl: ${OPTIMIZATION_URL}
+      Services__VroomUrl: ${VROOM_URL}
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  optimization:
+    build:
+      context: ./optimization
+    environment:
+      OSRM_FOOT_URL: ${OSRM_FOOT_URL}
+    ports:
+      - "8000:8000"
+    depends_on:
+      - osrm-foot
+
+  frontend:
+    build:
+      context: ./frontend/servis-optimizasyon-ui
+    environment:
+      VITE_API_BASE_URL: ${VITE_API_BASE_URL}
+    ports:
+      - "5173:80"
+    depends_on:
+      - backend
+
+  # OSRM verisi image içinde değil, hosttaki infrastructure/osrm/data altında tutulur.
+  # Ön işleme tamamlanmadan bu iki servis başlatılmaz.
+  osrm-car:
+    image: osrm/osrm-backend:v5.27.1
+    profiles: ["routing"]
+    command: osrm-routed --algorithm mld /data/car.osrm
+    volumes:
+      - ./infrastructure/osrm/data:/data:ro
+
+  osrm-foot:
+    image: osrm/osrm-backend:v5.27.1
+    profiles: ["routing"]
+    command: osrm-routed --algorithm mld /data/foot.osrm
+    volumes:
+      - ./infrastructure/osrm/data:/data:ro
+
+  vroom:
+    image: vroomvrp/vroom-docker:v1.14.0
+    profiles: ["routing"]
+    environment:
+      VROOM_ROUTER: osrm
+    volumes:
+      - ./infrastructure/vroom/config.yml:/conf/config.yml:ro
+    ports:
+      - "3000:3000"
+    depends_on:
+      - osrm-car
+
+volumes:
+  postgres-data:

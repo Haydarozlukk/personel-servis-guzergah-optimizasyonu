@@ -1,0 +1,142 @@
+openapi: 3.1.0
+info:
+  title: Personel Servis Optimizasyonu API
+  version: 0.1.0
+  description: PoC sözleşmesi. Tüm koordinatlar WGS84 [longitude, latitude] sırasındadır.
+servers:
+  - url: http://localhost:8080
+paths:
+  /health:
+    get:
+      responses:
+        '200':
+          description: API çalışıyor.
+  /api/v1/scenarios:
+    post:
+      summary: Sabah işe gidiş optimizasyon senaryosu başlatır.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ScenarioInput'
+      responses:
+        '202':
+          description: Senaryo kabul edildi.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScenarioAccepted'
+  /api/v1/scenarios/{scenarioId}:
+    get:
+      parameters:
+        - $ref: '#/components/parameters/ScenarioId'
+      responses:
+        '200':
+          description: Senaryo sonucu.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScenarioResult'
+  /api/v1/stops/generate:
+    post:
+      summary: Optimizasyon servisinin durak üretim sözleşmesi.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StopGenerationRequest'
+      responses:
+        '200':
+          description: Doğrulanmış duraklar ve atamalar.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StopGenerationResult'
+components:
+  parameters:
+    ScenarioId:
+      name: scenarioId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+  schemas:
+    Coordinate:
+      type: array
+      minItems: 2
+      maxItems: 2
+      items: { type: number, format: double }
+      example: [32.8597, 39.9334]
+    Person:
+      type: object
+      required: [id, location]
+      properties:
+        id: { type: string }
+        location: { $ref: '#/components/schemas/Coordinate' }
+    Vehicle:
+      type: object
+      required: [id, capacity, start]
+      properties:
+        id: { type: string }
+        capacity: { type: integer, minimum: 1 }
+        start: { $ref: '#/components/schemas/Coordinate' }
+    ScenarioInput:
+      type: object
+      required: [name, direction, workplace, arrivalDeadline, persons, vehicles]
+      properties:
+        name: { type: string }
+        direction: { type: string, enum: [morning_inbound] }
+        workplace: { $ref: '#/components/schemas/Coordinate' }
+        arrivalDeadline: { type: string, format: time, example: '08:30:00' }
+        persons:
+          type: array
+          items: { $ref: '#/components/schemas/Person' }
+        vehicles:
+          type: array
+          items: { $ref: '#/components/schemas/Vehicle' }
+    ScenarioAccepted:
+      type: object
+      required: [id, status]
+      properties:
+        id: { type: string, format: uuid }
+        status: { type: string, enum: [queued] }
+    StopGenerationRequest:
+      type: object
+      required: [persons, maxWalkingDistanceMeters]
+      properties:
+        persons:
+          type: array
+          items: { $ref: '#/components/schemas/Person' }
+        maxWalkingDistanceMeters: { type: integer, const: 500 }
+    StopGenerationResult:
+      type: object
+      required: [stops, unassignedPersonIds]
+      properties:
+        stops:
+          type: array
+          items:
+            type: object
+            required: [id, location, assignedPersonIds]
+            properties:
+              id: { type: string }
+              location: { $ref: '#/components/schemas/Coordinate' }
+              assignedPersonIds: { type: array, items: { type: string } }
+        unassignedPersonIds: { type: array, items: { type: string } }
+    ScenarioResult:
+      type: object
+      required: [id, status, routes, unassignedPersonIds]
+      properties:
+        id: { type: string, format: uuid }
+        status: { type: string, enum: [completed, failed] }
+        routes:
+          type: array
+          items:
+            type: object
+            properties:
+              vehicleId: { type: string }
+              distanceMeters: { type: integer }
+              durationSeconds: { type: integer }
+              load: { type: integer }
+              geometry: { type: string, description: Encoded polyline }
+        unassignedPersonIds: { type: array, items: { type: string } }

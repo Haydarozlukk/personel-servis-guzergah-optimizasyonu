@@ -1,0 +1,14 @@
+{
+  "name": "Ankara sabah PoC",
+  "direction": "morning_inbound",
+  "workplace": [32.8541, 39.9208],
+  "arrivalDeadline": "08:30:00",
+  "persons": [
+    { "id": "person-001", "location": [32.8597, 39.9334] },
+    { "id": "person-002", "location": [32.8642, 39.9261] },
+    { "id": "person-003", "location": [32.8505, 39.9412] }
+  ],
+  "vehicles": [
+    { "id": "vehicle-001", "capacity": 12, "start": [32.8597, 39.9334] }
+  ]
+}

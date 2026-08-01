@@ -1,0 +1,9 @@
+:root { font-family: Inter, system-ui, sans-serif; color: #183028; background: #f4f7f4; }
+body { margin: 0; }
+main { max-width: 1120px; margin: 0 auto; padding: 2rem; }
+header { max-width: 720px; }
+h1 { margin: .25rem 0; font-size: clamp(2rem, 4vw, 3.25rem); }
+.eyebrow { color: #216e39; font-weight: 700; margin: 0; text-transform: uppercase; letter-spacing: .08em; }
+.map-shell { height: 540px; overflow: hidden; border-radius: 1rem; border: 1px solid #d4ded5; box-shadow: 0 12px 32px #1c352119; }
+.leaflet-container { height: 100%; width: 100%; }
+aside { margin-top: 1rem; display: grid; gap: .25rem; color: #45584e; }
