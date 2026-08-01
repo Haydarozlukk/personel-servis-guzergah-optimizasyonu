@@ -7,7 +7,7 @@ Faz 0 başlangıç iskeleti oluşturuldu. Uygulama kodu henüz PoC düzeyinde sa
 ## Sınırlar
 
 - Personel adresleri kişisel veridir; depoya veya dış geocoding servisine gerçek değer yazılmaz.
-- İlk senaryo yalnızca sabah işe gidişidir.
+- İlk senaryo yalnızca sabah işe gidişidir; personel sayısı, araç sayısı ve araç kapasitesi kullanıcı girdisidir.
 - 500 metre kabulü düz çizgiye göre değil, `foot` yönlendirme mesafesine göre verilir.
 
 ## Servis sözleşmesi

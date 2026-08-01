@@ -91,9 +91,13 @@ components:
         arrivalDeadline: { type: string, format: time, example: '08:30:00' }
         persons:
           type: array
+          minItems: 1
+          description: Kullanıcı tarafından belirlenen personel listesi; sabit üst sınır yoktur.
           items: { $ref: '#/components/schemas/Person' }
         vehicles:
           type: array
+          minItems: 1
+          description: Kullanıcı tarafından belirlenen araç listesi; sabit üst sınır yoktur.
           items: { $ref: '#/components/schemas/Vehicle' }
     ScenarioAccepted:
       type: object
