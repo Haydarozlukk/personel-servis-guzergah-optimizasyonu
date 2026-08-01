@@ -38,9 +38,9 @@ export function App() {
         <p>Personel ve araç sayısını seç, ardından sabah işe gidiş senaryosunu oluştur.</p>
       </header>
       <section className="controls" aria-label="Senaryo girdileri">
-        <label>Personel sayısı<input type="number" min="1" max="500" value={personCount} onChange={(event) => setPersonCount(Number(event.target.value))} /></label>
-        <label>Araç sayısı<input type="number" min="1" max="100" value={vehicleCount} onChange={(event) => setVehicleCount(Number(event.target.value))} /></label>
-        <label>Araç kapasitesi<input type="number" min="1" max="100" value={vehicleCapacity} onChange={(event) => setVehicleCapacity(Number(event.target.value))} /></label>
+        <label>Personel sayısı<input type="number" min="1" value={personCount} onChange={(event) => setPersonCount(Number(event.target.value))} /></label>
+        <label>Araç sayısı<input type="number" min="1" value={vehicleCount} onChange={(event) => setVehicleCount(Number(event.target.value))} /></label>
+        <label>Araç kapasitesi<input type="number" min="1" value={vehicleCapacity} onChange={(event) => setVehicleCapacity(Number(event.target.value))} /></label>
         <button type="button" onClick={() => void createScenario()}>Senaryoyu oluştur</button>
       </section>
       <section className="map-shell" aria-label="Ankara personel haritası">
