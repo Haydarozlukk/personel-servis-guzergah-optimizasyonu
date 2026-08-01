@@ -4,7 +4,7 @@ Kurum personelinin en fazla 500 metre **gerçek yürüme mesafesi** ile ulaşabi
 
 ## PoC sınırı
 
-- 50 maskelenmiş personel, 5 araç
+- Personel sayısı, araç sayısı ve araç kapasitesi kullanıcı tarafından belirlenir; 50 personel/5 araç yalnızca örnek veri ölçeğidir
 - Yalnızca sabah işe gidiş senaryosu
 - Yürüme doğrulaması: OSRM `foot` profili ile `<= 500 m`
 - Araç rotası: OSRM `car` + VROOM

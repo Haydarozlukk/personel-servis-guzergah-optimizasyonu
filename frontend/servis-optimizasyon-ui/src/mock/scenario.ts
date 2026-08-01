@@ -1,9 +1,18 @@
 export type PersonPoint = { id: string; name: string; position: [number, number] }
 
-export const mockPersons: PersonPoint[] = [
-  { id: 'person-001', name: 'Personel 001', position: [39.9334, 32.8597] },
-  { id: 'person-002', name: 'Personel 002', position: [39.9261, 32.8642] },
-  { id: 'person-003', name: 'Personel 003', position: [39.9412, 32.8505] },
-]
-
 export const mockWorkplace: [number, number] = [39.9208, 32.8541]
+
+export function createMockPersons(count: number): PersonPoint[] {
+  return Array.from({ length: count }, (_, index) => {
+    const angle = index * 2.39996
+    const radius = 0.004 + (index % 7) * 0.0012
+    return {
+      id: `person-${String(index + 1).padStart(3, '0')}`,
+      name: `Personel ${String(index + 1).padStart(3, '0')}`,
+      position: [
+        mockWorkplace[0] + Math.cos(angle) * radius,
+        mockWorkplace[1] + Math.sin(angle) * radius,
+      ],
+    }
+  })
+}
