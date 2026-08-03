@@ -14,6 +14,25 @@ def test_valid_request_is_accepted() -> None:
 
     assert request.maxWalkingDistanceMeters == 500
     assert request.persons[0].id == "person-001"
+    assert request.maxStopDemand is None
+
+
+def test_positive_stop_capacity_is_accepted() -> None:
+    request = StopGenerationRequest(
+        persons=[Person(id="person-001", location=(32.8597, 39.9334))],
+        maxWalkingDistanceMeters=500,
+        maxStopDemand=12,
+    )
+    assert request.maxStopDemand == 12
+
+
+def test_zero_stop_capacity_is_rejected() -> None:
+    with pytest.raises(ValidationError):
+        StopGenerationRequest(
+            persons=[Person(id="person-001", location=(32.8597, 39.9334))],
+            maxWalkingDistanceMeters=500,
+            maxStopDemand=0,
+        )
 
 
 def test_empty_person_list_is_rejected() -> None:

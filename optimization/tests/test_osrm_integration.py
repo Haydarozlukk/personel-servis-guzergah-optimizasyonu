@@ -12,7 +12,7 @@ from app.osrm import OsrmFootClient
 )
 def test_real_osrm_foot_returns_a_walking_distance() -> None:
     osrm = OsrmFootClient(
-        base_url=os.getenv("OSRM_FOOT_URL", "http://localhost:5000")
+        base_url=os.getenv("OSRM_FOOT_URL", "http://localhost:5001")
     )
 
     distances = asyncio.run(

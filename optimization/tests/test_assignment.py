@@ -12,6 +12,7 @@ def make_evaluation(
         candidate=StopCandidate(id=candidate_id, location=location),
         coveredPersonIds=list(distances),
         walkingDistancesMeters=distances,
+        walkingDurationsSeconds={person_id: distance / 1.4 for person_id, distance in distances.items()},
         qualityScore=len(distances) / total_person_count,
         averageWalkingDistanceMeters=(
             sum(distances.values()) / len(distances) if distances else None
@@ -158,3 +159,22 @@ def test_candidate_id_breaks_an_exact_tie() -> None:
     result = select_stops_and_assign_persons(persons, evaluations)
 
     assert result.stops[0].id == "stop-candidate-001"
+
+
+def test_stop_demand_never_exceeds_limit_and_overflow_uses_other_stop() -> None:
+    persons = [Person(id=f"p{i}", location=(32.85, 39.93)) for i in range(1, 5)]
+    evaluations = [
+        make_evaluation("s1", (32.85, 39.93), {person.id: float(i) for i, person in enumerate(persons)}, 4),
+        make_evaluation("s2", (32.86, 39.94), {person.id: 100.0 + i for i, person in enumerate(persons)}, 4),
+    ]
+    result = select_stops_and_assign_persons(persons, evaluations, max_stop_demand=2)
+    assert [stop.demand for stop in result.stops] == [2, 2]
+    assert result.summary.assignedPersonCount == 4
+    assert result.unassignedPersonIds == []
+
+
+def test_capacity_overflow_has_a_reason() -> None:
+    persons = [Person(id=f"p{i}", location=(32.85, 39.93)) for i in range(1, 3)]
+    evaluations = [make_evaluation("s1", (32.85, 39.93), {"p1": 1.0, "p2": 2.0}, 2)]
+    result = select_stops_and_assign_persons(persons, evaluations, max_stop_demand=1)
+    assert result.unassignedPersons[0].reason == "stop_capacity_full"

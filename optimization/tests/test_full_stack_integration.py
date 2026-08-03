@@ -5,7 +5,6 @@ from urllib.request import Request, urlopen
 
 import pytest
 
-
 RUN_FULL_STACK = os.getenv("RUN_FULL_STACK_INTEGRATION") == "1"
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -39,6 +38,7 @@ def test_real_walking_distances_never_exceed_500_meters() -> None:
         {
             "persons": scenario["persons"],
             "maxWalkingDistanceMeters": 500,
+            "maxStopDemand": max(vehicle["capacity"] for vehicle in scenario["vehicles"]),
         },
     )
 
@@ -50,6 +50,9 @@ def test_real_walking_distances_never_exceed_500_meters() -> None:
 
     assert sum(stop["demand"] for stop in result["stops"]) == 50
     assert result["unassignedPersonIds"] == []
+    assert len(result["stops"]) < len(scenario["persons"])
+    assert max(stop["demand"] for stop in result["stops"]) <= 12
+    assert any(distance > 0 for distance in distances)
     assert max(distances) <= 500
 
 
