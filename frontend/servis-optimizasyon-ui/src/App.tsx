@@ -107,7 +107,7 @@ export function App() {
   return (
     <main>
       <header>
-        <p className="eyebrow">Faz 4 · Doğrulama ve büyük senaryo performansı</p>
+        <p className="eyebrow">Faz 5 · Gerçek backend ile uçtan uca doğrulandı</p>
         <h1>Personel Servis Güzergâh Optimizasyonu</h1>
         <p>Personel ve araç sayısını seç, ardından sabah işe gidiş senaryosunu oluştur.</p>
       </header>
