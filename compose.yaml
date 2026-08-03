@@ -3,6 +3,7 @@ name: personel-servis-optimizasyon
 services:
   postgres:
     image: postgis/postgis:17-3.5
+    restart: unless-stopped
     environment:
       POSTGRES_DB: ${POSTGRES_DB}
       POSTGRES_USER: ${POSTGRES_USER}
@@ -19,43 +20,78 @@ services:
   backend:
     build:
       context: ./backend/ServisOptimizasyon.Api
+    restart: unless-stopped
     environment:
       ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT}
       ConnectionStrings__Postgres: Host=postgres;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}
       Services__OptimizationUrl: ${OPTIMIZATION_URL}
       Services__VroomUrl: ${VROOM_URL}
+      Cors__AllowedOrigins: ${ALLOWED_ORIGINS}
     ports:
       - "8080:8080"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
     depends_on:
       postgres:
+        condition: service_healthy
+      optimization:
         condition: service_healthy
 
   optimization:
     build:
       context: ./optimization
+    restart: unless-stopped
     environment:
       OSRM_FOOT_URL: ${OSRM_FOOT_URL}
     ports:
       - "8000:8000"
-    depends_on:
-      - osrm-foot
+    healthcheck:
+      test:
+        ["CMD", "python", "-c",
+         "import urllib.request;urllib.request.urlopen('http://localhost:8000/health',timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+    # osrm-foot yalnızca `routing` profilinde çalıştığı için burada depends_on
+    # verilmez; profiller arası bağımlılık profilsiz `up` çağrısını bozuyordu.
+    # Profil kapalıyken servis ayakta kalır ve durak üretim isteklerine OSRM'e
+    # ulaşamadığını belirten 503 döner.
 
   frontend:
     build:
       context: ./frontend/servis-optimizasyon-ui
-    environment:
-      VITE_API_BASE_URL: ${VITE_API_BASE_URL}
+      args:
+        # Vite bu değişkeni derleme anında bundle'a gömer. Runtime `environment`
+        # olarak verilirse tarayıcıdaki değer `undefined` kalır ve arayüz
+        # backend'e hiç bağlanamaz.
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL}
+    restart: unless-stopped
     ports:
       - "5173:80"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost/"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
     depends_on:
       - backend
 
   # OSRM verisi image içinde değil, hosttaki infrastructure/osrm/data altında tutulur.
-  # Ön işleme tamamlanmadan bu iki servis başlatılmaz.
+  # Ön işleme tamamlanmadan bu servisler başlatılmaz.
+  #
+  # --max-table-size varsayılanı 100'dür. Optimizasyon servisi personel ve durak
+  # adayı koordinatlarını tek /table isteğinde gönderdiği için varsayılan değer
+  # 51 personelde "TooBig" hatası verir.
   osrm-car:
     image: ghcr.io/project-osrm/osrm-backend@sha256:3ac496ff8fd7e1af53846179d73d06a97f719c8ad2217d008ed868942398665c
     profiles: ["routing"]
-    command: osrm-routed --algorithm mld /data/car.osrm
+    restart: unless-stopped
+    command: osrm-routed --algorithm mld --max-table-size 10000 /data/car.osrm
     volumes:
       - ./infrastructure/osrm/data:/data:ro
     ports:
@@ -64,7 +100,8 @@ services:
   osrm-foot:
     image: ghcr.io/project-osrm/osrm-backend@sha256:3ac496ff8fd7e1af53846179d73d06a97f719c8ad2217d008ed868942398665c
     profiles: ["routing"]
-    command: osrm-routed --algorithm mld /data/foot.osrm
+    restart: unless-stopped
+    command: osrm-routed --algorithm mld --max-table-size 10000 /data/foot.osrm
     volumes:
       - ./infrastructure/osrm/data:/data:ro
     ports:
@@ -73,6 +110,7 @@ services:
   vroom:
     image: vroomvrp/vroom-docker@sha256:2e417553320bf68a25f6614ba8bdc31b0b2fc1172f8c25518c4656f488031c2a
     profiles: ["routing"]
+    restart: unless-stopped
     environment:
       VROOM_ROUTER: osrm
     volumes:
