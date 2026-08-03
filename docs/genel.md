@@ -2,7 +2,14 @@
 
 ## Durum
 
-Faz 0 başlangıç iskeleti oluşturuldu. Uygulama kodu henüz PoC düzeyinde sağlık uçları ve mock haritadır.
+- **Backend (Haydar):** senaryo kalıcılığı PostgreSQL/PostGIS üzerinde, optimizasyon arka planda kuyrukla
+  çalışıyor, VROOM zaman penceresi kısıtı uygulanıyor, Excel içe aktarma ve yeniden hesaplama uçları hazır,
+  birim testleri ve CI kurulu. Kalan iş: manuel düzenleme uçları (Efe'nin API talebine ve Kerim'in yürüme
+  mesafesi ucuna bağlı). Ayrıntı: [`haydar.md`](haydar.md).
+- **Optimizasyon (Kerim):** durak adayları ızgara tabanlı üretiliyor, OSRM matrisi parçalanıyor, durak
+  kapasite sınırı, yürüme süreleri, atanamama gerekçeleri ve üretim özeti dönüyor; ruff/mypy temiz.
+  Ayrıntı: [`kerim.md`](kerim.md).
+- **Arayüz (Efe):** hâlâ Faz 0 mock haritası; senaryo sonucu okunmuyor. Ayrıntı: [`efe.md`](efe.md).
 
 ## Sınırlar
 
