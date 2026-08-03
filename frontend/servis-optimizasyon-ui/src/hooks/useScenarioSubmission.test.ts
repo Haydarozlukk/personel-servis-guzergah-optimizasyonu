@@ -1,7 +1,7 @@
 import { act, renderHook, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useScenarioSubmission } from './useScenarioSubmission'
-import type { ScenarioInput } from '../lib/api'
+import type { ExcelImportForm, ScenarioInput } from '../lib/api'
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -100,5 +100,41 @@ describe('useScenarioSubmission', () => {
 
     await waitFor(() => expect(result.current.scenarioState).toBe('failed'))
     expect(result.current.errorMessage).toBe('Failed to fetch')
+  })
+
+  it('posts a multipart request and completes for Excel imports too', async () => {
+    const excelForm: ExcelImportForm = {
+      file: new File(['id,boylam,enlem'], 'senaryo.xlsx'),
+      name: 'Excel senaryosu',
+      arrivalDeadline: '08:30:00',
+      workplaceLongitude: 32.8541,
+      workplaceLatitude: 39.9208,
+    }
+    const fetchMock = vi.mocked(fetch)
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ id: 'scenario-3', status: 'queued' }, 202))
+      .mockResolvedValueOnce(
+        jsonResponse({
+          id: 'scenario-3',
+          name: excelForm.name,
+          status: 'completed',
+          deadlineSeconds: 30600,
+          stops: [],
+          routes: [],
+          unassignedPersonIds: [],
+        }),
+      )
+
+    const { result } = renderHook(() => useScenarioSubmission())
+
+    act(() => {
+      void result.current.submitExcelImport(excelForm)
+    })
+
+    await waitFor(() => expect(result.current.scenarioState).toBe('completed'))
+    const [url, options] = fetchMock.mock.calls[0]
+    expect(url).toBe('http://localhost:8080/api/v1/scenarios/import')
+    expect(options?.method).toBe('POST')
+    expect(options?.body).toBeInstanceOf(FormData)
   })
 })

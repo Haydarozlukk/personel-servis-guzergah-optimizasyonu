@@ -31,3 +31,12 @@ button:disabled { background: #9db8a5; cursor: not-allowed; }
 .route-table th { color: #45584e; font-weight: 600; font-size: .85rem; text-transform: uppercase; letter-spacing: .04em; }
 .route-swatch { display: inline-block; width: .8rem; height: .8rem; border-radius: 50%; }
 .unassigned-list ul { margin: 0; padding-left: 1.2rem; color: #45584e; }
+
+.mode-toggle { display: flex; gap: .5rem; margin-top: 1.5rem; }
+.mode-toggle button { background: #e4ece5; color: #35493d; font-weight: 600; }
+.mode-toggle button.active { background: #216e39; color: white; }
+
+.excel-import input[type='text'],
+.excel-import input[type='time'] { width: 12rem; }
+.excel-import input[type='file'] { width: 16rem; padding: .45rem; }
+button.secondary { background: #e4ece5; color: #216e39; }

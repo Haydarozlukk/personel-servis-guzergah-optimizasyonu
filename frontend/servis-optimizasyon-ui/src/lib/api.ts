@@ -47,6 +47,44 @@ export async function createScenario(input: ScenarioInput): Promise<ScenarioAcce
   return response.json()
 }
 
+export type ExcelImportForm = {
+  file: File
+  name: string
+  arrivalDeadline: string
+  workplaceLongitude: number
+  workplaceLatitude: number
+  vehicleCount?: number
+  vehicleCapacity?: number
+}
+
+export async function importScenarioFromExcel(form: ExcelImportForm): Promise<ScenarioAccepted> {
+  const body = new FormData()
+  body.set('file', form.file)
+  body.set('name', form.name)
+  body.set('arrivalDeadline', form.arrivalDeadline)
+  body.set('workplaceLongitude', String(form.workplaceLongitude))
+  body.set('workplaceLatitude', String(form.workplaceLatitude))
+  if (form.vehicleCount != null) body.set('vehicleCount', String(form.vehicleCount))
+  if (form.vehicleCapacity != null) body.set('vehicleCapacity', String(form.vehicleCapacity))
+
+  const response = await fetch(`${apiBaseUrl}/api/v1/scenarios/import`, { method: 'POST', body })
+  if (response.status === 413) throw new Error('Dosya boyutu sınırını (5 MB) aşıyor.')
+  if (!response.ok) throw new Error(await parseErrorMessage(response))
+  return response.json()
+}
+
+export async function downloadImportTemplate(): Promise<void> {
+  const response = await fetch(`${apiBaseUrl}/api/v1/scenarios/import/template`)
+  if (!response.ok) throw new Error(await parseErrorMessage(response))
+  const blob = await response.blob()
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = 'senaryo-sablonu.xlsx'
+  link.click()
+  URL.revokeObjectURL(url)
+}
+
 async function getScenarioResult(scenarioId: string): Promise<ScenarioResult | null> {
   const response = await fetch(`${apiBaseUrl}/api/v1/scenarios/${scenarioId}`)
   if (response.status === 404) return null

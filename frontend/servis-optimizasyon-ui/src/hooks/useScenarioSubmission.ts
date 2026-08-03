@@ -1,7 +1,10 @@
 import { useState } from 'react'
 import {
   createScenario,
+  importScenarioFromExcel,
   waitForScenarioResult,
+  type ExcelImportForm,
+  type ScenarioAccepted,
   type ScenarioInput,
   type ScenarioResult,
 } from '../lib/api'
@@ -15,13 +18,13 @@ export function useScenarioSubmission() {
   const [liveStatus, setLiveStatus] = useState<LiveStatus>(null)
   const [errorMessage, setErrorMessage] = useState('')
 
-  async function submitScenario(input: ScenarioInput) {
+  async function trackAcceptedScenario(requestAccepted: () => Promise<ScenarioAccepted>) {
     setScenarioState('submitting')
     setErrorMessage('')
     setScenarioResult(null)
     setLiveStatus(null)
     try {
-      const accepted = await createScenario(input)
+      const accepted = await requestAccepted()
       setScenarioState('waiting')
       const result = await waitForScenarioResult(accepted.id, (update) => {
         setLiveStatus(update.status === 'queued' || update.status === 'running' ? update.status : null)
@@ -35,5 +38,13 @@ export function useScenarioSubmission() {
     }
   }
 
-  return { scenarioState, scenarioResult, liveStatus, errorMessage, submitScenario }
+  async function submitScenario(input: ScenarioInput) {
+    await trackAcceptedScenario(() => createScenario(input))
+  }
+
+  async function submitExcelImport(form: ExcelImportForm) {
+    await trackAcceptedScenario(() => importScenarioFromExcel(form))
+  }
+
+  return { scenarioState, scenarioResult, liveStatus, errorMessage, submitScenario, submitExcelImport }
 }

@@ -1,7 +1,7 @@
 FROM node:22-alpine AS build
 WORKDIR /app
-COPY package.json .
-RUN npm install
+COPY package*.json ./
+RUN npm ci
 COPY . .
 # Vite ortam değişkenini derleme anında bundle'a gömer; compose bunu
 # build.args ile geçer. Runtime environment olarak verilirse değer undefined kalır.

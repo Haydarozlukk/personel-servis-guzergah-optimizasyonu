@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { createMockPersons, createMockRoutes, createMockStops, mockWorkplace } from './mock/scenario'
 import { useScenarioSubmission } from './hooks/useScenarioSubmission'
 import { ScenarioControls } from './components/ScenarioControls'
+import { ExcelImportForm } from './components/ExcelImportForm'
 import { ScenarioMap } from './components/ScenarioMap'
 import { RouteTable } from './components/RouteTable'
 import { UnassignedList } from './components/UnassignedList'
@@ -13,11 +14,15 @@ const unassignedReasonLabels: Record<string, string> = {
   not_routed: 'araç kapasitesi yetersiz',
 }
 
+type Mode = 'mock' | 'excel'
+
 export function App() {
+  const [mode, setMode] = useState<Mode>('mock')
   const [personCount, setPersonCount] = useState(50)
   const [vehicleCount, setVehicleCount] = useState(5)
   const [vehicleCapacity, setVehicleCapacity] = useState(16)
-  const { scenarioState, scenarioResult, liveStatus, errorMessage, submitScenario } = useScenarioSubmission()
+  const { scenarioState, scenarioResult, liveStatus, errorMessage, submitScenario, submitExcelImport } =
+    useScenarioSubmission()
 
   const mockPersons = useMemo(() => createMockPersons(personCount), [personCount])
   const mockStops = useMemo(() => createMockStops(mockPersons), [mockPersons])
@@ -26,7 +31,14 @@ export function App() {
     [mockStops, vehicleCount],
   )
 
-  const displayedRoutes = scenarioResult?.routes ?? mockRoutes
+  // The Excel-import flow has no client-side spiral data to preview before a
+  // real result comes back — persons and their coordinates only ever exist
+  // server-side, per docs/kararlar.md — so its "mock preview" is empty.
+  const displayedMockPersons = mode === 'mock' ? mockPersons : []
+  const displayedMockStops = mode === 'mock' ? mockStops : []
+  const displayedMockRoutes = mode === 'mock' ? mockRoutes : []
+
+  const displayedRoutes = scenarioResult?.routes ?? displayedMockRoutes
   const unassignedPersonIds = scenarioResult?.unassignedPersonIds ?? []
   const stopSummary = scenarioResult?.stopGenerationSummary ?? null
   const realStops = scenarioResult?.stops ?? null
@@ -46,7 +58,7 @@ export function App() {
       ? `Toplam araç kapasitesi (${totalCapacity}) personel sayısından (${personCount}) az; bazı personel atanamayabilir.`
       : null
 
-  function handleSubmit() {
+  function handleMockSubmit() {
     void submitScenario({
       name: 'Kullanıcı tanımlı sabah senaryosu',
       direction: 'morning_inbound',
@@ -90,34 +102,68 @@ export function App() {
       <header>
         <p className="eyebrow">Faz 5 · Gerçek backend ile uçtan uca doğrulandı</p>
         <h1>Personel Servis Güzergâh Optimizasyonu</h1>
-        <p>Personel ve araç sayısını seç, ardından sabah işe gidiş senaryosunu oluştur.</p>
+        <p>Mock veri ile deneyin ya da gerçek personel/araç listenizi Excel'den yükleyin.</p>
       </header>
-      <ScenarioControls
-        personCount={personCount}
-        vehicleCount={vehicleCount}
-        vehicleCapacity={vehicleCapacity}
-        onPersonCountChange={setPersonCount}
-        onVehicleCountChange={setVehicleCount}
-        onVehicleCapacityChange={setVehicleCapacity}
-        onSubmit={handleSubmit}
-        disabled={isBusy || !isFormValid}
-        isBusy={isBusy}
-        validationErrors={validationErrors}
-        capacityWarning={capacityWarning}
-      />
+      <div className="mode-toggle" role="tablist" aria-label="Senaryo veri kaynağı">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={mode === 'mock'}
+          className={mode === 'mock' ? 'active' : ''}
+          disabled={isBusy}
+          onClick={() => setMode('mock')}
+        >
+          Mock senaryo
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={mode === 'excel'}
+          className={mode === 'excel' ? 'active' : ''}
+          disabled={isBusy}
+          onClick={() => setMode('excel')}
+        >
+          Excel'den içe aktar
+        </button>
+      </div>
+      {mode === 'mock' ? (
+        <ScenarioControls
+          personCount={personCount}
+          vehicleCount={vehicleCount}
+          vehicleCapacity={vehicleCapacity}
+          onPersonCountChange={setPersonCount}
+          onVehicleCountChange={setVehicleCount}
+          onVehicleCapacityChange={setVehicleCapacity}
+          onSubmit={handleMockSubmit}
+          disabled={isBusy || !isFormValid}
+          isBusy={isBusy}
+          validationErrors={validationErrors}
+          capacityWarning={capacityWarning}
+        />
+      ) : (
+        <ExcelImportForm
+          onSubmit={(form) => void submitExcelImport(form)}
+          disabled={isBusy}
+          isBusy={isBusy}
+        />
+      )}
       <ScenarioMap
         routes={displayedRoutes}
-        persons={mockPersons}
+        persons={displayedMockPersons}
         unassignedPersonIds={unassignedPersonIds}
         realStops={realStops}
-        mockStops={mockStops}
+        mockStops={displayedMockStops}
         workplace={mockWorkplace}
       />
       <aside>
-        <strong>{personCount} personel · {vehicleCount} araç · araç başına {vehicleCapacity} koltuk</strong>
+        <strong>
+          {mode === 'mock'
+            ? `${personCount} personel · ${vehicleCount} araç · araç başına ${vehicleCapacity} koltuk`
+            : "Excel'den içe aktarılan senaryo"}
+        </strong>
         <span>
-          {(realStops ?? mockStops).length} durak{realStops ? '' : ' adayı (önizleme)'} ·{' '}
-          {displayedRoutes.length} rota çizildi{scenarioResult ? ' (API sonucu)' : ' (mock)'}
+          {(realStops ?? displayedMockStops).length} durak{realStops ? '' : mode === 'mock' ? ' adayı (önizleme)' : ''} ·{' '}
+          {displayedRoutes.length} rota çizildi{scenarioResult ? ' (API sonucu)' : mode === 'mock' ? ' (mock)' : ''}
         </span>
         {warnings.length > 0 && <span className="status-warning">{warnings.join(' ')}</span>}
         {stopSummary && (
@@ -134,7 +180,7 @@ export function App() {
         )}
         <span className={scenarioState === 'failed' ? 'status-error' : undefined}>{statusMessage[scenarioState]}</span>
       </aside>
-      <RouteTable routes={displayedRoutes} isMock={!scenarioResult} />
+      <RouteTable routes={displayedRoutes} isMock={mode === 'mock' && !scenarioResult} />
       <UnassignedList persons={unassignedPersons} />
     </main>
   )
