@@ -12,19 +12,35 @@ public sealed record ScenarioAccepted(Guid Id, string Status);
 
 public sealed record StopGenerationRequest(
     List<PersonInput> Persons,
-    int MaxWalkingDistanceMeters);
+    int MaxWalkingDistanceMeters,
+    int MaxStopDemand);
 
 public sealed record GeneratedStop(
     string Id,
     double[] Location,
     List<string> AssignedPersonIds,
     Dictionary<string, double> WalkingDistancesMeters,
+    Dictionary<string, double> WalkingDurationsSeconds,
     int Demand,
-    double QualityScore);
+    double QualityScore,
+    double AverageWalkingDistanceMeters);
+
+public sealed record UnassignedPerson(string Id, string Reason);
+public sealed record StopGenerationSummary(
+    int StopCount,
+    int AssignedPersonCount,
+    int UnassignedPersonCount,
+    double? AverageWalkingDistanceMeters,
+    double? MaximumWalkingDistanceMeters,
+    double? AverageWalkingDurationSeconds,
+    double? MaximumWalkingDurationSeconds,
+    int MatrixChunkCount);
 
 public sealed record StopGenerationResult(
     List<GeneratedStop> Stops,
-    List<string> UnassignedPersonIds);
+    List<string> UnassignedPersonIds,
+    List<UnassignedPerson> UnassignedPersons,
+    StopGenerationSummary Summary);
 
 public sealed record VroomRequest(
     List<VroomJob> Jobs,
@@ -79,4 +95,5 @@ public sealed record ScenarioResult(
     string Status,
     List<RouteResult> Routes,
     List<string> UnassignedPersonIds,
+    StopGenerationSummary? StopGenerationSummary = null,
     string? Error = null);

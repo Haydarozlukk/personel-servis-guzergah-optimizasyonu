@@ -1,47 +1,35 @@
-from app.candidates import generate_stop_candidates
+import asyncio
+from unittest.mock import AsyncMock
+
+from app.candidates import generate_candidate_seed_locations, generate_stop_candidates
 from app.models import Person
+from app.osrm import OsrmFootClient
 
 
-def test_each_unique_person_location_becomes_a_candidate() -> None:
+def test_nearby_people_share_a_grid_candidate() -> None:
     persons = [
-        Person(id="person-001", location=(32.8597, 39.9334)),
-        Person(id="person-002", location=(32.8642, 39.9261)),
+        Person(id="p1", location=(32.85000, 39.93000)),
+        Person(id="p2", location=(32.85005, 39.93005)),
     ]
-
-    candidates = generate_stop_candidates(persons)
-
-    assert len(candidates) == 2
-    assert {candidate.location for candidate in candidates} == {
-        (32.8597, 39.9334),
-        (32.8642, 39.9261),
-    }
+    seeds = generate_candidate_seed_locations(persons)
+    assert len(seeds) == 1
+    assert seeds[0] != persons[0].location
+    assert seeds[0] != persons[1].location
 
 
-def test_people_at_the_same_location_share_one_candidate() -> None:
+def test_candidates_are_snapped_and_close_ones_are_merged() -> None:
     persons = [
-        Person(id="person-001", location=(32.8597, 39.9334)),
-        Person(id="person-002", location=(32.8597, 39.9334)),
+        Person(id="p1", location=(32.8500, 39.9300)),
+        Person(id="p2", location=(32.8600, 39.9400)),
     ]
-
-    candidates = generate_stop_candidates(persons)
-
+    osrm = AsyncMock(spec=OsrmFootClient)
+    osrm.snap_locations.return_value = [(32.851, 39.931), (32.8511, 39.9311)]
+    candidates = asyncio.run(generate_stop_candidates(persons, osrm))
     assert len(candidates) == 1
-    assert candidates[0].location == (32.8597, 39.9334)
-
-
-def test_candidate_output_does_not_depend_on_person_order() -> None:
-    first_person = Person(id="person-001", location=(32.8597, 39.9334))
-    second_person = Person(id="person-002", location=(32.8642, 39.9261))
-
-    forward = generate_stop_candidates([first_person, second_person])
-    reverse = generate_stop_candidates([second_person, first_person])
-
-    assert forward == reverse
-    assert [candidate.id for candidate in forward] == [
-        "stop-candidate-001",
-        "stop-candidate-002",
-    ]
+    assert candidates[0].location == (32.851, 39.931)
 
 
 def test_empty_person_list_produces_no_candidates() -> None:
-    assert generate_stop_candidates([]) == []
+    osrm = AsyncMock(spec=OsrmFootClient)
+    osrm.snap_locations.return_value = []
+    assert asyncio.run(generate_stop_candidates([], osrm)) == []

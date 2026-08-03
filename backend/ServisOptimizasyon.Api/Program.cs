@@ -45,7 +45,7 @@ app.MapPost("/api/v1/scenarios", async (
             "failed",
             [],
             input.Persons.Select(person => person.Id).Order().ToList(),
-            exception.Message);
+            Error: exception.Message);
     }
 
     return Results.Accepted(
