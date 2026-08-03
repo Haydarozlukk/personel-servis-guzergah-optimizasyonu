@@ -25,6 +25,20 @@ export function App() {
   const displayedRoutes = scenarioResult?.routes ?? mockRoutes
   const unassignedPersonIds = scenarioResult?.unassignedPersonIds ?? []
 
+  const isBusy = scenarioState === 'submitting' || scenarioState === 'waiting'
+  const isPositiveInteger = (value: number) => Number.isInteger(value) && value >= 1
+  const validationErrors = [
+    !isPositiveInteger(personCount) && 'Personel sayısı en az 1 olmalı.',
+    !isPositiveInteger(vehicleCount) && 'Araç sayısı en az 1 olmalı.',
+    !isPositiveInteger(vehicleCapacity) && 'Araç kapasitesi en az 1 olmalı.',
+  ].filter((error): error is string => Boolean(error))
+  const isFormValid = validationErrors.length === 0
+  const totalCapacity = vehicleCount * vehicleCapacity
+  const capacityWarning =
+    isFormValid && totalCapacity < personCount
+      ? `Toplam araç kapasitesi (${totalCapacity}) personel sayısından (${personCount}) az; bazı personel atanamayabilir.`
+      : null
+
   async function submitScenario() {
     setScenarioState('submitting')
     setErrorMessage('')
@@ -71,24 +85,49 @@ export function App() {
   return (
     <main>
       <header>
-        <p className="eyebrow">Faz 3 · Gerçek rota sonuçları</p>
+        <p className="eyebrow">Faz 4 · Doğrulama ve büyük senaryo performansı</p>
         <h1>Personel Servis Güzergâh Optimizasyonu</h1>
         <p>Personel ve araç sayısını seç, ardından sabah işe gidiş senaryosunu oluştur.</p>
       </header>
       <section className="controls" aria-label="Senaryo girdileri">
-        <label>Personel sayısı<input type="number" min="1" value={personCount} onChange={(event) => setPersonCount(Number(event.target.value))} /></label>
-        <label>Araç sayısı<input type="number" min="1" value={vehicleCount} onChange={(event) => setVehicleCount(Number(event.target.value))} /></label>
-        <label>Araç kapasitesi<input type="number" min="1" value={vehicleCapacity} onChange={(event) => setVehicleCapacity(Number(event.target.value))} /></label>
-        <button
-          type="button"
-          disabled={scenarioState === 'submitting' || scenarioState === 'waiting'}
-          onClick={() => void submitScenario()}
-        >
+        <label>Personel sayısı
+          <input
+            type="number"
+            min="1"
+            value={personCount}
+            disabled={isBusy}
+            onChange={(event) => setPersonCount(Number(event.target.value))}
+          />
+        </label>
+        <label>Araç sayısı
+          <input
+            type="number"
+            min="1"
+            value={vehicleCount}
+            disabled={isBusy}
+            onChange={(event) => setVehicleCount(Number(event.target.value))}
+          />
+        </label>
+        <label>Araç kapasitesi
+          <input
+            type="number"
+            min="1"
+            value={vehicleCapacity}
+            disabled={isBusy}
+            onChange={(event) => setVehicleCapacity(Number(event.target.value))}
+          />
+        </label>
+        <button type="button" disabled={isBusy || !isFormValid} onClick={() => void submitScenario()}>
+          {isBusy && <span className="spinner" aria-hidden="true" />}
           Senaryoyu oluştur
         </button>
       </section>
+      {validationErrors.length > 0 && (
+        <p className="status-error">{validationErrors.join(' ')}</p>
+      )}
+      {capacityWarning && <p className="status-warning">{capacityWarning}</p>}
       <section className="map-shell" aria-label="Ankara personel haritası">
-        <MapContainer center={[39.9334, 32.8597]} zoom={13} scrollWheelZoom>
+        <MapContainer center={[39.9334, 32.8597]} zoom={13} scrollWheelZoom preferCanvas>
           <TileLayer
             attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
             url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
