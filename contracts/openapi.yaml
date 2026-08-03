@@ -54,6 +54,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/StopGenerationResult'
+        '503':
+          description: Yürüme mesafesi için OSRM foot servisine ulaşılamadı.
 components:
   parameters:
     ScenarioId:
@@ -111,8 +113,9 @@ components:
       properties:
         persons:
           type: array
+          minItems: 1
           items: { $ref: '#/components/schemas/Person' }
-        maxWalkingDistanceMeters: { type: integer, const: 500 }
+        maxWalkingDistanceMeters: { type: integer, minimum: 1, maximum: 500 }
     StopGenerationResult:
       type: object
       required: [stops, unassignedPersonIds]
@@ -121,11 +124,25 @@ components:
           type: array
           items:
             type: object
-            required: [id, location, assignedPersonIds]
+            required: [id, location, assignedPersonIds, walkingDistancesMeters, demand, qualityScore]
             properties:
               id: { type: string }
               location: { $ref: '#/components/schemas/Coordinate' }
               assignedPersonIds: { type: array, items: { type: string } }
+              walkingDistancesMeters:
+                type: object
+                description: Atanan personel kimliğinden gerçek foot-OSRM yürüme mesafesine eşleme.
+                additionalProperties: { type: number, format: double, minimum: 0, maximum: 500 }
+              demand:
+                type: integer
+                minimum: 1
+                description: Durağa atanan ve VROOM kapasite talebine dönüştürülecek kişi sayısı.
+              qualityScore:
+                type: number
+                format: double
+                minimum: 0
+                maximum: 1
+                description: Durağın toplam personel içindeki kapsama oranı.
         unassignedPersonIds: { type: array, items: { type: string } }
     ScenarioResult:
       type: object
@@ -137,10 +154,57 @@ components:
           type: array
           items:
             type: object
+            required: [vehicleId, distanceMeters, durationSeconds, load, geometry, stopIds]
             properties:
               vehicleId: { type: string }
               distanceMeters: { type: integer }
               durationSeconds: { type: integer }
               load: { type: integer }
               geometry: { type: string, description: Encoded polyline }
+              stopIds: { type: array, items: { type: string } }
         unassignedPersonIds: { type: array, items: { type: string } }
+        error:
+          type: [string, 'null']
+          description: Başarısız senaryoda entegrasyon hata mesajı.
+    VroomJob:
+      type: object
+      required: [id, description, location, pickup]
+      properties:
+        id: { type: integer, minimum: 1 }
+        description: { type: string, description: Optimizasyon servisindeki durak kimliği. }
+        location: { $ref: '#/components/schemas/Coordinate' }
+        pickup:
+          type: array
+          minItems: 1
+          maxItems: 1
+          items: { type: integer, minimum: 1 }
+    VroomVehicle:
+      type: object
+      required: [id, description, profile, start, end, capacity, timeWindow]
+      properties:
+        id: { type: integer, minimum: 1 }
+        description: { type: string, description: Senaryodaki araç kimliği. }
+        profile: { type: string, const: car }
+        start: { $ref: '#/components/schemas/Coordinate' }
+        end: { $ref: '#/components/schemas/Coordinate' }
+        capacity:
+          type: array
+          minItems: 1
+          maxItems: 1
+          items: { type: integer, minimum: 1 }
+        timeWindow:
+          type: array
+          minItems: 2
+          maxItems: 2
+          items: { type: integer, minimum: 0 }
+    VroomRequest:
+      type: object
+      required: [jobs, vehicles, options]
+      properties:
+        jobs: { type: array, items: { $ref: '#/components/schemas/VroomJob' } }
+        vehicles: { type: array, items: { $ref: '#/components/schemas/VroomVehicle' } }
+        options:
+          type: object
+          required: [g]
+          properties:
+            g: { type: boolean, const: true, description: Rota geometrisini çıktıya ekler. }

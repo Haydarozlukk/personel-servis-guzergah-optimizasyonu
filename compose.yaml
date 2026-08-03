@@ -53,21 +53,25 @@ services:
   # OSRM verisi image içinde değil, hosttaki infrastructure/osrm/data altında tutulur.
   # Ön işleme tamamlanmadan bu iki servis başlatılmaz.
   osrm-car:
-    image: osrm/osrm-backend:v5.27.1
+    image: ghcr.io/project-osrm/osrm-backend@sha256:3ac496ff8fd7e1af53846179d73d06a97f719c8ad2217d008ed868942398665c
     profiles: ["routing"]
     command: osrm-routed --algorithm mld /data/car.osrm
     volumes:
       - ./infrastructure/osrm/data:/data:ro
+    ports:
+      - "5002:5000"
 
   osrm-foot:
-    image: osrm/osrm-backend:v5.27.1
+    image: ghcr.io/project-osrm/osrm-backend@sha256:3ac496ff8fd7e1af53846179d73d06a97f719c8ad2217d008ed868942398665c
     profiles: ["routing"]
     command: osrm-routed --algorithm mld /data/foot.osrm
     volumes:
       - ./infrastructure/osrm/data:/data:ro
+    ports:
+      - "5001:5000"
 
   vroom:
-    image: vroomvrp/vroom-docker:v1.14.0
+    image: vroomvrp/vroom-docker@sha256:2e417553320bf68a25f6614ba8bdc31b0b2fc1172f8c25518c4656f488031c2a
     profiles: ["routing"]
     environment:
       VROOM_ROUTER: osrm
