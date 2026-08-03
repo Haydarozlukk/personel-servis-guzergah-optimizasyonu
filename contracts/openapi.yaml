@@ -116,15 +116,16 @@ components:
           minItems: 1
           items: { $ref: '#/components/schemas/Person' }
         maxWalkingDistanceMeters: { type: integer, minimum: 1, maximum: 500 }
+        maxStopDemand: { type: [integer, 'null'], minimum: 1 }
     StopGenerationResult:
       type: object
-      required: [stops, unassignedPersonIds]
+      required: [stops, unassignedPersonIds, unassignedPersons, summary]
       properties:
         stops:
           type: array
           items:
             type: object
-            required: [id, location, assignedPersonIds, walkingDistancesMeters, demand, qualityScore]
+            required: [id, location, assignedPersonIds, walkingDistancesMeters, walkingDurationsSeconds, demand, qualityScore, averageWalkingDistanceMeters]
             properties:
               id: { type: string }
               location: { $ref: '#/components/schemas/Coordinate' }
@@ -133,6 +134,10 @@ components:
                 type: object
                 description: Atanan personel kimliğinden gerçek foot-OSRM yürüme mesafesine eşleme.
                 additionalProperties: { type: number, format: double, minimum: 0, maximum: 500 }
+              walkingDurationsSeconds:
+                type: object
+                additionalProperties: { type: number, format: double, minimum: 0 }
+              averageWalkingDistanceMeters: { type: number, format: double, minimum: 0, maximum: 500 }
               demand:
                 type: integer
                 minimum: 1
@@ -144,6 +149,27 @@ components:
                 maximum: 1
                 description: Durağın toplam personel içindeki kapsama oranı.
         unassignedPersonIds: { type: array, items: { type: string } }
+        unassignedPersons:
+          type: array
+          items:
+            type: object
+            required: [id, reason]
+            properties:
+              id: { type: string }
+              reason: { type: string, enum: [no_candidate_within_limit, no_route, stop_capacity_full] }
+        summary: { $ref: '#/components/schemas/StopGenerationSummary' }
+    StopGenerationSummary:
+      type: object
+      required: [stopCount, assignedPersonCount, unassignedPersonCount, matrixChunkCount]
+      properties:
+        stopCount: { type: integer, minimum: 0 }
+        assignedPersonCount: { type: integer, minimum: 0 }
+        unassignedPersonCount: { type: integer, minimum: 0 }
+        averageWalkingDistanceMeters: { type: [number, 'null'], format: double, minimum: 0 }
+        maximumWalkingDistanceMeters: { type: [number, 'null'], format: double, minimum: 0, maximum: 500 }
+        averageWalkingDurationSeconds: { type: [number, 'null'], format: double, minimum: 0 }
+        maximumWalkingDurationSeconds: { type: [number, 'null'], format: double, minimum: 0 }
+        matrixChunkCount: { type: integer, minimum: 0 }
     ScenarioResult:
       type: object
       required: [id, status, routes, unassignedPersonIds]
@@ -163,6 +189,10 @@ components:
               geometry: { type: string, description: Encoded polyline }
               stopIds: { type: array, items: { type: string } }
         unassignedPersonIds: { type: array, items: { type: string } }
+        stopGenerationSummary:
+          oneOf:
+            - $ref: '#/components/schemas/StopGenerationSummary'
+            - type: 'null'
         error:
           type: [string, 'null']
           description: Başarısız senaryoda entegrasyon hata mesajı.

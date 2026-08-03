@@ -4,11 +4,12 @@ public sealed class OptimizationClient(HttpClient client)
 {
     public async Task<StopGenerationResult> GenerateStopsAsync(
         List<PersonInput> persons,
+        int maxStopDemand,
         CancellationToken cancellationToken)
     {
         using var response = await client.PostAsJsonAsync(
             "/api/v1/stops/generate",
-            new StopGenerationRequest(persons, 500),
+            new StopGenerationRequest(persons, 500, maxStopDemand),
             cancellationToken);
         response.EnsureSuccessStatusCode();
 
@@ -47,6 +48,7 @@ public sealed class ScenarioOrchestrator(
     {
         var stopResult = await optimizationClient.GenerateStopsAsync(
             input.Persons,
+            input.Vehicles.Max(vehicle => vehicle.Capacity),
             cancellationToken);
 
         var jobToStop = stopResult.Stops
@@ -107,6 +109,7 @@ public sealed class ScenarioOrchestrator(
             scenarioId,
             "completed",
             routes,
-            unassignedPersonIds);
+            unassignedPersonIds,
+            stopResult.Summary);
     }
 }
