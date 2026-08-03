@@ -13,3 +13,10 @@ aside { margin-top: 1rem; display: grid; gap: .25rem; color: #45584e; }
 button { padding: .65rem 1rem; border: 0; border-radius: .4rem; background: #216e39; color: white; cursor: pointer; font: inherit; font-weight: 700; }
 button:disabled { background: #9db8a5; cursor: not-allowed; }
 .status-error { color: #dc2626; font-weight: 600; }
+.route-table, .unassigned-list { margin-top: 1.5rem; }
+.route-table h2, .unassigned-list h2 { font-size: 1.1rem; margin: 0 0 .5rem; }
+.route-table table { width: 100%; border-collapse: collapse; }
+.route-table th, .route-table td { text-align: left; padding: .4rem .6rem; border-bottom: 1px solid #d4ded5; }
+.route-table th { color: #45584e; font-weight: 600; font-size: .85rem; text-transform: uppercase; letter-spacing: .04em; }
+.route-swatch { display: inline-block; width: .8rem; height: .8rem; border-radius: 50%; }
+.unassigned-list ul { margin: 0; padding-left: 1.2rem; color: #45584e; }

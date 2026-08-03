@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { Circle, CircleMarker, MapContainer, Marker, Polyline, Popup, TileLayer } from 'react-leaflet'
+import { Circle, CircleMarker, MapContainer, Marker, Polyline, Popup, TileLayer, Tooltip } from 'react-leaflet'
 import { createMockPersons, createMockRoutes, createMockStops, mockWorkplace } from './mock/scenario'
 import { decodePolyline } from './lib/polyline'
 import { createScenario as postScenario, waitForScenarioResult, type ScenarioResult } from './lib/api'
@@ -66,10 +66,12 @@ export function App() {
 
   const stopSummary = scenarioResult?.stopGenerationSummary ?? null
 
+  const unassignedPersons = mockPersons.filter((person) => unassignedPersonIds.includes(person.id))
+
   return (
     <main>
       <header>
-        <p className="eyebrow">Faz 2 · Gerçek yürüme mesafesi özeti</p>
+        <p className="eyebrow">Faz 3 · Gerçek rota sonuçları</p>
         <h1>Personel Servis Güzergâh Optimizasyonu</h1>
         <p>Personel ve araç sayısını seç, ardından sabah işe gidiş senaryosunu oluştur.</p>
       </header>
@@ -96,7 +98,12 @@ export function App() {
               key={route.vehicleId}
               positions={decodePolyline(route.geometry)}
               pathOptions={{ color: routeColors[index % routeColors.length], weight: 4, opacity: 0.85 }}
-            />
+            >
+              <Tooltip sticky>
+                {route.vehicleId} · {(route.distanceMeters / 1000).toFixed(1)} km ·{' '}
+                {Math.round(route.durationSeconds / 60)} dk · yük {route.load}
+              </Tooltip>
+            </Polyline>
           ))}
           {mockPersons.map((person) => (
             <CircleMarker
@@ -147,6 +154,43 @@ export function App() {
         )}
         <span className={scenarioState === 'failed' ? 'status-error' : undefined}>{statusMessage[scenarioState]}</span>
       </aside>
+      {displayedRoutes.length > 0 && (
+        <section className="route-table" aria-label="Rota detayları">
+          <h2>Rota detayları{scenarioResult ? '' : ' (mock önizleme)'}</h2>
+          <table>
+            <thead>
+              <tr>
+                <th></th>
+                <th>Araç</th>
+                <th>Mesafe</th>
+                <th>Süre</th>
+                <th>Yük</th>
+              </tr>
+            </thead>
+            <tbody>
+              {displayedRoutes.map((route, index) => (
+                <tr key={route.vehicleId}>
+                  <td><span className="route-swatch" style={{ background: routeColors[index % routeColors.length] }} /></td>
+                  <td>{route.vehicleId}</td>
+                  <td>{(route.distanceMeters / 1000).toFixed(1)} km</td>
+                  <td>{Math.round(route.durationSeconds / 60)} dk</td>
+                  <td>{route.load}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </section>
+      )}
+      {unassignedPersons.length > 0 && (
+        <section className="unassigned-list" aria-label="Atanamayan personel">
+          <h2>Atanamayan personel ({unassignedPersons.length})</h2>
+          <ul>
+            {unassignedPersons.map((person) => (
+              <li key={person.id}>{person.name}</li>
+            ))}
+          </ul>
+        </section>
+      )}
     </main>
   )
 }
