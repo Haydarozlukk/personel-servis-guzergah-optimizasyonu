@@ -1,3 +1,8 @@
+// Types are derived from contracts/openapi.yaml (see `npm run generate:types`)
+// rather than hand-written, so a contract change that removes/renames/retypes
+// a field breaks the build here instead of failing silently at runtime.
+import type { components } from './openapi'
+
 export type Coordinate = [longitude: number, latitude: number]
 
 export type ScenarioInput = {
@@ -9,63 +14,13 @@ export type ScenarioInput = {
   vehicles: { id: string; capacity: number; start: Coordinate }[]
 }
 
-export type ScenarioAccepted = { id: string; status: 'queued' }
-
-export type ScenarioStop = {
-  id: string
-  location: Coordinate
-  assignedPersonIds: string[]
-  walkingDistancesMeters: Record<string, number>
-  walkingDurationsSeconds: Record<string, number>
-  demand: number
-  qualityScore: number
-  averageWalkingDistanceMeters: number
-}
-
-export type RouteStep = { stopId: string; arrivalSeconds: number; load: number }
-
-export type ScenarioRoute = {
-  vehicleId: string
-  distanceMeters: number
-  durationSeconds: number
-  load: number
-  geometry: string
-  stopIds: string[]
-  steps: RouteStep[]
-  arrivalSeconds: number
-  deadlineMet: boolean
-}
-
-export type UnassignedPerson = {
-  id: string
-  reason: 'no_candidate_within_limit' | 'no_route' | 'stop_capacity_full' | 'not_routed'
-}
-
-export type StopGenerationSummary = {
-  stopCount: number
-  assignedPersonCount: number
-  unassignedPersonCount: number
-  averageWalkingDistanceMeters: number | null
-  maximumWalkingDistanceMeters: number | null
-  averageWalkingDurationSeconds: number | null
-  maximumWalkingDurationSeconds: number | null
-  matrixChunkCount: number
-}
-
-export type ScenarioResult = {
-  id: string
-  name: string
-  status: 'queued' | 'running' | 'completed' | 'failed'
-  deadlineSeconds: number
-  stops: ScenarioStop[]
-  routes: ScenarioRoute[]
-  unassignedPersonIds: string[]
-  unassignedPersons: UnassignedPerson[]
-  deadlineMet: boolean | null
-  warnings: string[]
-  stopGenerationSummary: StopGenerationSummary | null
-  error: string | null
-}
+export type ScenarioAccepted = components['schemas']['ScenarioAccepted']
+export type ScenarioStop = components['schemas']['Stop']
+export type RouteStep = components['schemas']['RouteStep']
+export type ScenarioRoute = components['schemas']['Route']
+export type StopGenerationSummary = components['schemas']['StopGenerationSummary']
+export type UnassignedPerson = NonNullable<components['schemas']['ScenarioResult']['unassignedPersons']>[number]
+export type ScenarioResult = components['schemas']['ScenarioResult']
 
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8080'
 
