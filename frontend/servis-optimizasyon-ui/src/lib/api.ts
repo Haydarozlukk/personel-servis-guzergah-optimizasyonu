@@ -20,11 +20,23 @@ export type ScenarioRoute = {
   stopIds: string[]
 }
 
+export type StopGenerationSummary = {
+  stopCount: number
+  assignedPersonCount: number
+  unassignedPersonCount: number
+  averageWalkingDistanceMeters: number | null
+  maximumWalkingDistanceMeters: number | null
+  averageWalkingDurationSeconds: number | null
+  maximumWalkingDurationSeconds: number | null
+  matrixChunkCount: number
+}
+
 export type ScenarioResult = {
   id: string
   status: 'completed' | 'failed'
   routes: ScenarioRoute[]
   unassignedPersonIds: string[]
+  stopGenerationSummary: StopGenerationSummary | null
   error: string | null
 }
 

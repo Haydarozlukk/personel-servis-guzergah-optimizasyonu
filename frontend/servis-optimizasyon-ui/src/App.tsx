@@ -57,17 +57,19 @@ export function App() {
   }
 
   const statusMessage: Record<ScenarioState, string> = {
-    idle: 'Gerçek 500 m doğrulaması Faz 2’de foot-OSRM ile yapılacaktır.',
+    idle: 'Senaryoyu oluşturunca gerçek yürüme mesafesi özeti (foot-OSRM) burada görünecek.',
     submitting: 'Senaryo gönderiliyor…',
     waiting: 'Optimizasyon sonucu bekleniyor…',
     completed: `Senaryo tamamlandı: ${scenarioResult?.routes.length ?? 0} rota, ${unassignedPersonIds.length} atanamayan personel.`,
     failed: `Senaryo başarısız: ${errorMessage}`,
   }
 
+  const stopSummary = scenarioResult?.stopGenerationSummary ?? null
+
   return (
     <main>
       <header>
-        <p className="eyebrow">Faz 1 · Gerçek senaryo API'si</p>
+        <p className="eyebrow">Faz 2 · Gerçek yürüme mesafesi özeti</p>
         <h1>Personel Servis Güzergâh Optimizasyonu</h1>
         <p>Personel ve araç sayısını seç, ardından sabah işe gidiş senaryosunu oluştur.</p>
       </header>
@@ -115,7 +117,11 @@ export function App() {
               radius={10}
               pathOptions={{ color: '#cc5d00', fillColor: '#ffb703', fillOpacity: 0.9, weight: 2 }}
             >
-              <Popup>{stop.id} · {stop.assignedPersonIds.length} personel (önizleme, Faz 2'de gerçek /stops/generate ile değişecek)</Popup>
+              <Popup>
+                {stop.id} · {stop.assignedPersonIds.length} personel (önizleme — gerçek durak konumları
+                /stops/generate yalnızca backend içinden çağrılabildiği için haritada gösterilemiyor;
+                aşağıdaki özet gerçek foot-OSRM sonucudur)
+              </Popup>
             </CircleMarker>
           ))}
           <Marker position={mockWorkplace}>
@@ -127,6 +133,18 @@ export function App() {
       <aside>
         <strong>{personCount} personel · {vehicleCount} araç · araç başına {vehicleCapacity} koltuk</strong>
         <span>{mockStops.length} durak adayı (önizleme) · {displayedRoutes.length} rota çizildi{scenarioResult ? ' (API sonucu)' : ' (mock)'}</span>
+        {stopSummary && (
+          <span>
+            Gerçek durak özeti: {stopSummary.stopCount} durak · {stopSummary.assignedPersonCount} atanan ·{' '}
+            {stopSummary.unassignedPersonCount} atanamayan personel
+            {stopSummary.averageWalkingDistanceMeters != null &&
+              ` · ort. yürüme ${Math.round(stopSummary.averageWalkingDistanceMeters)} m`}
+            {stopSummary.maximumWalkingDistanceMeters != null &&
+              ` (maks. ${Math.round(stopSummary.maximumWalkingDistanceMeters)} m)`}
+            {stopSummary.averageWalkingDurationSeconds != null &&
+              ` · ort. yürüme süresi ${Math.round(stopSummary.averageWalkingDurationSeconds)} sn`}
+          </span>
+        )}
         <span className={scenarioState === 'failed' ? 'status-error' : undefined}>{statusMessage[scenarioState]}</span>
       </aside>
     </main>
