@@ -4,4 +4,12 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
   </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Senaryo kalıcılığı: PostGIS geography sütunları ham SQL ile yazılır,
+         NetTopologySuite bağımlılığına gerek yoktur. -->
+    <PackageReference Include="Npgsql" Version="9.0.3" />
+    <!-- Excel içe aktarımı ve şablon üretimi. -->
+    <PackageReference Include="ClosedXML" Version="0.104.2" />
+  </ItemGroup>
 </Project>

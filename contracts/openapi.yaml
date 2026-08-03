@@ -1,19 +1,35 @@
 openapi: 3.1.0
 info:
   title: Personel Servis Optimizasyonu API
-  version: 0.1.0
-  description: PoC sözleşmesi. Tüm koordinatlar WGS84 [longitude, latitude] sırasındadır.
+  version: 0.2.0
+  description: |
+    PoC sözleşmesi. Tüm koordinatlar WGS84 [longitude, latitude] sırasındadır.
+
+    Zaman alanları (`arrivalSeconds`, `deadlineSeconds`) gün başlangıcından
+    itibaren saniye cinsindendir; 08:30:00 = 30600.
 servers:
   - url: http://localhost:8080
 paths:
   /health:
     get:
+      summary: Canlılık kontrolü; süreç ayakta mı.
       responses:
         '200':
           description: API çalışıyor.
+  /health/ready:
+    get:
+      summary: Hazırlık kontrolü; senaryo deposu erişilebilir mi.
+      responses:
+        '200':
+          description: Servis istek almaya hazır.
+        '503':
+          description: Veritabanına ulaşılamıyor.
   /api/v1/scenarios:
     post:
-      summary: Sabah işe gidiş optimizasyon senaryosu başlatır.
+      summary: Sabah işe gidiş optimizasyon senaryosu kuyruğa alır.
+      description: |
+        Senaryo kalıcılaştırılır ve `queued` durumunda hemen döner. Optimizasyon
+        arka planda çalışır; sonuç `GET /api/v1/scenarios/{scenarioId}` ile alınır.
       requestBody:
         required: true
         content:
@@ -22,22 +38,112 @@ paths:
               $ref: '#/components/schemas/ScenarioInput'
       responses:
         '202':
-          description: Senaryo kabul edildi.
+          description: Senaryo kabul edildi ve kuyruğa alındı.
+          headers:
+            Location:
+              schema: { type: string }
+              description: Sonucun sorgulanacağı adres.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ScenarioAccepted'
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+  /api/v1/scenarios/import:
+    post:
+      summary: Excel dosyasından senaryo oluşturur.
+      description: |
+        `personel` sayfası zorunludur; başlık satırından sonra `id`, `boylam`, `enlem`
+        sütunları okunur. `araclar` sayfası varsa `id`, `kapasite`, `boylam`, `enlem`
+        sütunları okunur; yoksa `vehicleCount` ve `vehicleCapacity` alanları zorunludur
+        ve araçlar işyerinden başlatılır.
+
+        Yüklenen dosya diske yazılmaz; yalnızca istek içinde ayrıştırılır
+        (bkz. `docs/kararlar.md`).
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file, name, arrivalDeadline, workplaceLongitude, workplaceLatitude]
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: '.xlsx dosyası; en fazla 5 MB.'
+                name: { type: string }
+                arrivalDeadline: { type: string, format: time, example: '08:30:00' }
+                workplaceLongitude: { type: number, format: double }
+                workplaceLatitude: { type: number, format: double }
+                vehicleCount: { type: integer, minimum: 1 }
+                vehicleCapacity: { type: integer, minimum: 1 }
+      responses:
+        '202':
+          description: Senaryo kabul edildi ve kuyruğa alındı.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScenarioAccepted'
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '413':
+          description: Dosya boyutu sınırı aşıldı.
+  /api/v1/scenarios/import/template:
+    get:
+      summary: Boş Excel şablonu indirir.
+      responses:
+        '200':
+          description: Şablon dosyası.
+          content:
+            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+              schema: { type: string, format: binary }
   /api/v1/scenarios/{scenarioId}:
     get:
+      summary: Senaryo durumunu ve sonucunu döner.
       parameters:
         - $ref: '#/components/parameters/ScenarioId'
       responses:
         '200':
-          description: Senaryo sonucu.
+          description: Senaryo durumu veya sonucu.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ScenarioResult'
+        '404':
+          description: Senaryo bulunamadı.
+  /api/v1/scenarios/{scenarioId}/reoptimize:
+    post:
+      summary: Kayıtlı duraklarla rotayı yeniden hesaplar.
+      description: |
+        Durak üretimi yeniden çalıştırılmaz; kalıcılaştırılmış duraklar kullanılır.
+        Gövdede araç listesi verilirse senaryonun araçları bu listeyle değiştirilir.
+      parameters:
+        - $ref: '#/components/parameters/ScenarioId'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                vehicles:
+                  type: array
+                  minItems: 1
+                  items: { $ref: '#/components/schemas/Vehicle' }
+      responses:
+        '202':
+          description: Yeniden hesaplama kuyruğa alındı.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScenarioAccepted'
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '404':
+          description: Senaryo bulunamadı.
+        '409':
+          description: Senaryonun kayıtlı durağı yok; önce tam optimizasyon çalışmalıdır.
   /api/v1/stops/generate:
     post:
       summary: Optimizasyon servisinin durak üretim sözleşmesi.
@@ -63,6 +169,21 @@ components:
       in: path
       required: true
       schema: { type: string, format: uuid }
+  responses:
+    ValidationFailed:
+      description: Girdi doğrulaması başarısız.
+      content:
+        application/problem+json:
+          schema:
+            type: object
+            properties:
+              title: { type: string }
+              status: { type: integer }
+              errors:
+                type: object
+                additionalProperties:
+                  type: array
+                  items: { type: string }
   schemas:
     Coordinate:
       type: array
@@ -107,6 +228,12 @@ components:
       properties:
         id: { type: string, format: uuid }
         status: { type: string, enum: [queued] }
+    ScenarioStatus:
+      type: string
+      enum: [queued, running, completed, failed]
+      description: |
+        `queued` kuyrukta, `running` arka planda çalışıyor, `completed` sonuç hazır,
+        `failed` entegrasyon hatası. Arayüz `completed` veya `failed` görene dek sorgular.
     StopGenerationRequest:
       type: object
       required: [persons, maxWalkingDistanceMeters]
@@ -116,7 +243,12 @@ components:
           minItems: 1
           items: { $ref: '#/components/schemas/Person' }
         maxWalkingDistanceMeters: { type: integer, minimum: 1, maximum: 500 }
-        maxStopDemand: { type: [integer, 'null'], minimum: 1 }
+        maxStopDemand:
+          type: [integer, 'null']
+          minimum: 1
+          description: |
+            Bir durağa atanabilecek en fazla kişi sayısı. Backend senaryodaki en büyük
+            araç kapasitesini geçer; optimizasyon servisi bunu aşan durak üretmez.
     StopGenerationResult:
       type: object
       required: [stops, unassignedPersonIds, unassignedPersons, summary]
@@ -125,7 +257,9 @@ components:
           type: array
           items:
             type: object
-            required: [id, location, assignedPersonIds, walkingDistancesMeters, walkingDurationsSeconds, demand, qualityScore, averageWalkingDistanceMeters]
+            required:
+              [id, location, assignedPersonIds, walkingDistancesMeters, walkingDurationsSeconds,
+               demand, qualityScore, averageWalkingDistanceMeters]
             properties:
               id: { type: string }
               location: { $ref: '#/components/schemas/Coordinate' }
@@ -136,8 +270,10 @@ components:
                 additionalProperties: { type: number, format: double, minimum: 0, maximum: 500 }
               walkingDurationsSeconds:
                 type: object
+                description: Atanan personel kimliğinden foot-OSRM yürüme süresine eşleme.
                 additionalProperties: { type: number, format: double, minimum: 0 }
-              averageWalkingDistanceMeters: { type: number, format: double, minimum: 0, maximum: 500 }
+              averageWalkingDistanceMeters:
+                { type: number, format: double, minimum: 0, maximum: 500 }
               demand:
                 type: integer
                 minimum: 1
@@ -148,16 +284,22 @@ components:
                 minimum: 0
                 maximum: 1
                 description: Durağın toplam personel içindeki kapsama oranı.
-        unassignedPersonIds: { type: array, items: { type: string } }
+        unassignedPersonIds:
+          type: array
+          description: Geriye dönük uyumluluk için kimlik listesi; gerekçeler `unassignedPersons` içindedir.
+          items: { type: string }
         unassignedPersons:
           type: array
-          items:
-            type: object
-            required: [id, reason]
-            properties:
-              id: { type: string }
-              reason: { type: string, enum: [no_candidate_within_limit, no_route, stop_capacity_full] }
+          items: { $ref: '#/components/schemas/UnassignedPerson' }
         summary: { $ref: '#/components/schemas/StopGenerationSummary' }
+    UnassignedPerson:
+      type: object
+      required: [id, reason]
+      properties:
+        id: { type: string }
+        reason:
+          type: string
+          enum: [no_candidate_within_limit, no_route, stop_capacity_full]
     StopGenerationSummary:
       type: object
       required: [stopCount, assignedPersonCount, unassignedPersonCount, matrixChunkCount]
@@ -169,36 +311,114 @@ components:
         maximumWalkingDistanceMeters: { type: [number, 'null'], format: double, minimum: 0, maximum: 500 }
         averageWalkingDurationSeconds: { type: [number, 'null'], format: double, minimum: 0 }
         maximumWalkingDurationSeconds: { type: [number, 'null'], format: double, minimum: 0 }
-        matrixChunkCount: { type: integer, minimum: 0 }
+        matrixChunkCount:
+          type: integer
+          minimum: 0
+          description: OSRM mesafe matrisinin kaç parçaya bölünerek istendiği.
+    Stop:
+      type: object
+      required:
+        [id, location, assignedPersonIds, walkingDistancesMeters, walkingDurationsSeconds,
+         demand, qualityScore, averageWalkingDistanceMeters]
+      properties:
+        id: { type: string }
+        location: { $ref: '#/components/schemas/Coordinate' }
+        assignedPersonIds: { type: array, items: { type: string } }
+        walkingDistancesMeters:
+          type: object
+          additionalProperties: { type: number, format: double, minimum: 0 }
+        walkingDurationsSeconds:
+          type: object
+          additionalProperties: { type: number, format: double, minimum: 0 }
+        demand: { type: integer, minimum: 0 }
+        qualityScore: { type: number, format: double, minimum: 0, maximum: 1 }
+        averageWalkingDistanceMeters: { type: number, format: double, minimum: 0 }
+    RouteStep:
+      type: object
+      required: [stopId, arrivalSeconds, load]
+      properties:
+        stopId: { type: string }
+        arrivalSeconds:
+          type: integer
+          description: Gün başlangıcından itibaren saniye.
+        load:
+          type: integer
+          description: Duraktan ayrılırken araçtaki kişi sayısı.
+    Route:
+      type: object
+      required: [vehicleId, distanceMeters, durationSeconds, load, geometry, stopIds, steps, arrivalSeconds, deadlineMet]
+      properties:
+        vehicleId: { type: string }
+        distanceMeters: { type: integer }
+        durationSeconds: { type: integer }
+        load: { type: integer }
+        geometry: { type: string, description: Encoded polyline }
+        stopIds: { type: array, items: { type: string } }
+        steps:
+          type: array
+          items: { $ref: '#/components/schemas/RouteStep' }
+        arrivalSeconds:
+          type: integer
+          description: Aracın işyerine varış saati; gün başlangıcından itibaren saniye.
+        deadlineMet:
+          type: boolean
+          description: Varış saati `arrivalDeadline` değerini aşmıyorsa true.
     ScenarioResult:
       type: object
-      required: [id, status, routes, unassignedPersonIds]
+      required: [id, name, status, stops, routes, unassignedPersonIds, deadlineSeconds]
       properties:
         id: { type: string, format: uuid }
-        status: { type: string, enum: [completed, failed] }
+        name: { type: string }
+        status: { $ref: '#/components/schemas/ScenarioStatus' }
+        deadlineSeconds:
+          type: integer
+          description: '`arrivalDeadline` alanının saniye karşılığı; 08:30:00 = 30600.'
+        stops:
+          type: array
+          description: Rotalarda geçen durakların konumu ve personel ataması.
+          items: { $ref: '#/components/schemas/Stop' }
         routes:
+          type: array
+          items: { $ref: '#/components/schemas/Route' }
+        unassignedPersonIds:
+          type: array
+          description: Geriye dönük uyumluluk için kimlik listesi; gerekçeler `unassignedPersons` içindedir.
+          items: { type: string }
+        unassignedPersons:
           type: array
           items:
             type: object
-            required: [vehicleId, distanceMeters, durationSeconds, load, geometry, stopIds]
+            required: [id, reason]
             properties:
-              vehicleId: { type: string }
-              distanceMeters: { type: integer }
-              durationSeconds: { type: integer }
-              load: { type: integer }
-              geometry: { type: string, description: Encoded polyline }
-              stopIds: { type: array, items: { type: string } }
-        unassignedPersonIds: { type: array, items: { type: string } }
+              id: { type: string }
+              reason:
+                type: string
+                enum: [no_candidate_within_limit, no_route, stop_capacity_full, not_routed]
+                description: |
+                  İlk üçü optimizasyon servisinden gelir. `not_routed` backend'e aittir ve
+                  VROOM'un durağı hiçbir araca atayamadığı durumu gösterir.
+        deadlineMet:
+          type: [boolean, 'null']
+          description: Tüm rotalar için varış saati kısıtı sağlandıysa true.
+        warnings:
+          type: array
+          description: Senaryoyu reddetmeyen ama kullanıcıya gösterilmesi gereken uyarılar.
+          items: { type: string }
         stopGenerationSummary:
+          description: |
+            Durak üretim özeti. Yeniden rotalamada durak üretimi çalışmadığı için
+            ilk optimizasyondaki değer korunur.
           oneOf:
             - $ref: '#/components/schemas/StopGenerationSummary'
             - type: 'null'
         error:
           type: [string, 'null']
           description: Başarısız senaryoda entegrasyon hata mesajı.
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
     VroomJob:
       type: object
-      required: [id, description, location, pickup]
+      required: [id, description, location, pickup, service]
       properties:
         id: { type: integer, minimum: 1 }
         description: { type: string, description: Optimizasyon servisindeki durak kimliği. }
@@ -208,9 +428,13 @@ components:
           minItems: 1
           maxItems: 1
           items: { type: integer, minimum: 1 }
+        service:
+          type: integer
+          minimum: 0
+          description: Durakta geçen biniş süresi (saniye).
     VroomVehicle:
       type: object
-      required: [id, description, profile, start, end, capacity, timeWindow]
+      required: [id, description, profile, start, end, capacity, time_window]
       properties:
         id: { type: integer, minimum: 1 }
         description: { type: string, description: Senaryodaki araç kimliği. }
@@ -222,10 +446,13 @@ components:
           minItems: 1
           maxItems: 1
           items: { type: integer, minimum: 1 }
-        timeWindow:
+        time_window:
           type: array
           minItems: 2
           maxItems: 2
+          description: |
+            VROOM alan adı snake_case'tir. camelCase gönderilirse kısıt sessizce
+            yok sayılır ve varış saati uygulanmaz.
           items: { type: integer, minimum: 0 }
     VroomRequest:
       type: object
