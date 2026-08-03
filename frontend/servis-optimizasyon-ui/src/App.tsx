@@ -1,6 +1,9 @@
 import { useMemo, useState } from 'react'
-import { Circle, CircleMarker, MapContainer, Marker, Popup, TileLayer } from 'react-leaflet'
-import { createMockPersons, mockWorkplace } from './mock/scenario'
+import { Circle, CircleMarker, MapContainer, Marker, Polyline, Popup, TileLayer } from 'react-leaflet'
+import { createMockPersons, createMockRoutes, createMockStops, mockWorkplace } from './mock/scenario'
+import { decodePolyline } from './lib/polyline'
+
+const routeColors = ['#1d4ed8', '#7c3aed', '#059669', '#db2777', '#ea580c', '#0891b2']
 
 export function App() {
   const [personCount, setPersonCount] = useState(50)
@@ -8,6 +11,11 @@ export function App() {
   const [vehicleCapacity, setVehicleCapacity] = useState(16)
   const [submitMessage, setSubmitMessage] = useState('')
   const mockPersons = useMemo(() => createMockPersons(personCount), [personCount])
+  const mockStops = useMemo(() => createMockStops(mockPersons), [mockPersons])
+  const mockRoutes = useMemo(
+    () => createMockRoutes(mockStops, vehicleCount, mockWorkplace),
+    [mockStops, vehicleCount],
+  )
 
   async function createScenario() {
     setSubmitMessage('Senaryo gönderiliyor…')
@@ -49,9 +57,26 @@ export function App() {
             attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
             url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
           />
+          {mockRoutes.map((route, index) => (
+            <Polyline
+              key={route.vehicleId}
+              positions={decodePolyline(route.geometry)}
+              pathOptions={{ color: routeColors[index % routeColors.length], weight: 4, opacity: 0.85 }}
+            />
+          ))}
           {mockPersons.map((person) => (
             <CircleMarker key={person.id} center={person.position} radius={7} pathOptions={{ color: '#216e39' }}>
               <Popup>{person.name}</Popup>
+            </CircleMarker>
+          ))}
+          {mockStops.map((stop) => (
+            <CircleMarker
+              key={stop.id}
+              center={stop.location}
+              radius={10}
+              pathOptions={{ color: '#cc5d00', fillColor: '#ffb703', fillOpacity: 0.9, weight: 2 }}
+            >
+              <Popup>{stop.id} · {stop.assignedPersonIds.length} personel</Popup>
             </CircleMarker>
           ))}
           <Marker position={mockWorkplace}>
@@ -62,6 +87,7 @@ export function App() {
       </section>
       <aside>
         <strong>{personCount} personel · {vehicleCount} araç · araç başına {vehicleCapacity} koltuk</strong>
+        <span>{mockStops.length} durak adayı · {mockRoutes.length} rota çizildi</span>
         <span>{submitMessage || 'Gerçek 500 m doğrulaması Faz 2’de foot-OSRM ile yapılacaktır.'}</span>
       </aside>
     </main>
