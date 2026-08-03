@@ -11,6 +11,19 @@ export type ScenarioInput = {
 
 export type ScenarioAccepted = { id: string; status: 'queued' }
 
+export type ScenarioStop = {
+  id: string
+  location: Coordinate
+  assignedPersonIds: string[]
+  walkingDistancesMeters: Record<string, number>
+  walkingDurationsSeconds: Record<string, number>
+  demand: number
+  qualityScore: number
+  averageWalkingDistanceMeters: number
+}
+
+export type RouteStep = { stopId: string; arrivalSeconds: number; load: number }
+
 export type ScenarioRoute = {
   vehicleId: string
   distanceMeters: number
@@ -18,6 +31,14 @@ export type ScenarioRoute = {
   load: number
   geometry: string
   stopIds: string[]
+  steps: RouteStep[]
+  arrivalSeconds: number
+  deadlineMet: boolean
+}
+
+export type UnassignedPerson = {
+  id: string
+  reason: 'no_candidate_within_limit' | 'no_route' | 'stop_capacity_full' | 'not_routed'
 }
 
 export type StopGenerationSummary = {
@@ -33,9 +54,15 @@ export type StopGenerationSummary = {
 
 export type ScenarioResult = {
   id: string
-  status: 'completed' | 'failed'
+  name: string
+  status: 'queued' | 'running' | 'completed' | 'failed'
+  deadlineSeconds: number
+  stops: ScenarioStop[]
   routes: ScenarioRoute[]
   unassignedPersonIds: string[]
+  unassignedPersons: UnassignedPerson[]
+  deadlineMet: boolean | null
+  warnings: string[]
   stopGenerationSummary: StopGenerationSummary | null
   error: string | null
 }
@@ -73,17 +100,23 @@ async function getScenarioResult(scenarioId: string): Promise<ScenarioResult | n
 }
 
 const POLL_INTERVAL_MS = 1000
-const POLL_TIMEOUT_MS = 30000
+const POLL_TIMEOUT_MS = 120000
 
-// The current API resolves the scenario synchronously before responding to the
-// POST, so the GET right after should already return the stored result. This
-// still retries on a 404 for the short window it takes for that write to land,
-// and stays forward-compatible if the orchestrator becomes truly async later.
-export async function waitForScenarioResult(scenarioId: string): Promise<ScenarioResult> {
+// The API persists the scenario and processes it on a background queue, so the
+// GET right after the POST returns immediately with status "queued"/"running".
+// Keep polling until it reaches a terminal state; also retry briefly on 404 for
+// the short window between the POST response and the row actually landing.
+export async function waitForScenarioResult(
+  scenarioId: string,
+  onUpdate?: (result: ScenarioResult) => void,
+): Promise<ScenarioResult> {
   const startedAt = Date.now()
   while (true) {
     const result = await getScenarioResult(scenarioId)
-    if (result) return result
+    if (result) {
+      onUpdate?.(result)
+      if (result.status === 'completed' || result.status === 'failed') return result
+    }
     if (Date.now() - startedAt > POLL_TIMEOUT_MS) {
       throw new Error('Senaryo sonucu zaman aşımına uğradı.')
     }

@@ -14,6 +14,7 @@ export function App() {
   const [vehicleCapacity, setVehicleCapacity] = useState(16)
   const [scenarioState, setScenarioState] = useState<ScenarioState>('idle')
   const [scenarioResult, setScenarioResult] = useState<ScenarioResult | null>(null)
+  const [liveStatus, setLiveStatus] = useState<'queued' | 'running' | null>(null)
   const [errorMessage, setErrorMessage] = useState('')
   const mockPersons = useMemo(() => createMockPersons(personCount), [personCount])
   const mockStops = useMemo(() => createMockStops(mockPersons), [mockPersons])
@@ -43,6 +44,7 @@ export function App() {
     setScenarioState('submitting')
     setErrorMessage('')
     setScenarioResult(null)
+    setLiveStatus(null)
     try {
       const accepted = await postScenario({
         name: 'Kullanıcı tanımlı sabah senaryosu',
@@ -60,7 +62,9 @@ export function App() {
         })),
       })
       setScenarioState('waiting')
-      const result = await waitForScenarioResult(accepted.id)
+      const result = await waitForScenarioResult(accepted.id, (update) => {
+        setLiveStatus(update.status === 'queued' || update.status === 'running' ? update.status : null)
+      })
       setScenarioResult(result)
       setScenarioState(result.status === 'completed' ? 'completed' : 'failed')
       if (result.status === 'failed') setErrorMessage(result.error ?? 'Senaryo başarısız oldu.')
@@ -70,17 +74,35 @@ export function App() {
     }
   }
 
+  const deadlineNote =
+    scenarioResult?.deadlineMet === false ? ' Uyarı: bazı araçlar varış saatini kaçırdı.' : ''
+
   const statusMessage: Record<ScenarioState, string> = {
     idle: 'Senaryoyu oluşturunca gerçek yürüme mesafesi özeti (foot-OSRM) burada görünecek.',
     submitting: 'Senaryo gönderiliyor…',
-    waiting: 'Optimizasyon sonucu bekleniyor…',
-    completed: `Senaryo tamamlandı: ${scenarioResult?.routes.length ?? 0} rota, ${unassignedPersonIds.length} atanamayan personel.`,
+    waiting: liveStatus === 'running' ? 'Optimizasyon çalışıyor…' : 'Senaryo kuyrukta bekliyor…',
+    completed: `Senaryo tamamlandı: ${scenarioResult?.routes.length ?? 0} rota, ${unassignedPersonIds.length} atanamayan personel.${deadlineNote}`,
     failed: `Senaryo başarısız: ${errorMessage}`,
   }
 
   const stopSummary = scenarioResult?.stopGenerationSummary ?? null
+  const realStops = scenarioResult?.stops ?? null
 
-  const unassignedPersons = mockPersons.filter((person) => unassignedPersonIds.includes(person.id))
+  const unassignedReasonLabels: Record<string, string> = {
+    no_candidate_within_limit: '500 m içinde durak yok',
+    no_route: 'yürüme rotası yok',
+    stop_capacity_full: 'durak kapasitesi doldu',
+    not_routed: 'araç kapasitesi yetersiz',
+  }
+  const unassignedPersons = scenarioResult
+    ? scenarioResult.unassignedPersons.map((entry) => ({
+        id: entry.id,
+        name: mockPersons.find((person) => person.id === entry.id)?.name ?? entry.id,
+        reason: unassignedReasonLabels[entry.reason] ?? entry.reason,
+      }))
+    : mockPersons
+        .filter((person) => unassignedPersonIds.includes(person.id))
+        .map((person) => ({ id: person.id, name: person.name, reason: null as string | null }))
 
   return (
     <main>
@@ -156,20 +178,31 @@ export function App() {
               <Popup>{person.name}</Popup>
             </CircleMarker>
           ))}
-          {mockStops.map((stop) => (
-            <CircleMarker
-              key={stop.id}
-              center={stop.location}
-              radius={10}
-              pathOptions={{ color: '#cc5d00', fillColor: '#ffb703', fillOpacity: 0.9, weight: 2 }}
-            >
-              <Popup>
-                {stop.id} · {stop.assignedPersonIds.length} personel (önizleme — gerçek durak konumları
-                /stops/generate yalnızca backend içinden çağrılabildiği için haritada gösterilemiyor;
-                aşağıdaki özet gerçek foot-OSRM sonucudur)
-              </Popup>
-            </CircleMarker>
-          ))}
+          {realStops
+            ? realStops.map((stop) => (
+                <CircleMarker
+                  key={stop.id}
+                  center={[stop.location[1], stop.location[0]]}
+                  radius={10}
+                  pathOptions={{ color: '#cc5d00', fillColor: '#ffb703', fillOpacity: 0.9, weight: 2 }}
+                >
+                  <Popup>
+                    {stop.id} · {stop.assignedPersonIds.length} personel · ort. yürüme{' '}
+                    {Math.round(stop.averageWalkingDistanceMeters)} m · kalite{' '}
+                    {Math.round(stop.qualityScore * 100)}%
+                  </Popup>
+                </CircleMarker>
+              ))
+            : mockStops.map((stop) => (
+                <CircleMarker
+                  key={stop.id}
+                  center={stop.location}
+                  radius={10}
+                  pathOptions={{ color: '#cc5d00', fillColor: '#ffb703', fillOpacity: 0.9, weight: 2 }}
+                >
+                  <Popup>{stop.id} · {stop.assignedPersonIds.length} personel (önizleme)</Popup>
+                </CircleMarker>
+              ))}
           <Marker position={mockWorkplace}>
             <Popup>İşyeri hedefi</Popup>
           </Marker>
@@ -178,7 +211,13 @@ export function App() {
       </section>
       <aside>
         <strong>{personCount} personel · {vehicleCount} araç · araç başına {vehicleCapacity} koltuk</strong>
-        <span>{mockStops.length} durak adayı (önizleme) · {displayedRoutes.length} rota çizildi{scenarioResult ? ' (API sonucu)' : ' (mock)'}</span>
+        <span>
+          {(realStops ?? mockStops).length} durak{realStops ? '' : ' adayı (önizleme)'} ·{' '}
+          {displayedRoutes.length} rota çizildi{scenarioResult ? ' (API sonucu)' : ' (mock)'}
+        </span>
+        {scenarioResult && scenarioResult.warnings.length > 0 && (
+          <span className="status-warning">{scenarioResult.warnings.join(' ')}</span>
+        )}
         {stopSummary && (
           <span>
             Gerçek durak özeti: {stopSummary.stopCount} durak · {stopSummary.assignedPersonCount} atanan ·{' '}
@@ -225,7 +264,7 @@ export function App() {
           <h2>Atanamayan personel ({unassignedPersons.length})</h2>
           <ul>
             {unassignedPersons.map((person) => (
-              <li key={person.id}>{person.name}</li>
+              <li key={person.id}>{person.name}{person.reason ? ` — ${person.reason}` : ''}</li>
             ))}
           </ul>
         </section>
