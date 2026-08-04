@@ -55,7 +55,8 @@ paths:
       description: |
         `personel` sayfası zorunludur; başlık satırından sonra `id` ve `adres`
         sütunları okunur. Adresler backend tarafından yapılandırılmış, kurum içi
-        Nominatim uyumlu servisle WGS84 koordinatına çevrilir. `araclar` sayfası
+        Nominatim uyumlu servisle WGS84 koordinatına çevrilir. İşyeri adresi de
+        aynı servisle koordinata çevrilir. `araclar` sayfası
         varsa `id`, `kapasite`, `boylam`, `enlem`
         sütunları okunur; yoksa `vehicleCount` ve `vehicleCapacity` alanları zorunludur
         ve araçlar işyerinden başlatılır.
@@ -68,7 +69,7 @@ paths:
           multipart/form-data:
             schema:
               type: object
-              required: [file, name, arrivalDeadline, workplaceLongitude, workplaceLatitude]
+              required: [file, name, arrivalDeadline, workplaceAddress]
               properties:
                 file:
                   type: string
@@ -76,8 +77,10 @@ paths:
                   description: '.xlsx dosyası; en fazla 5 MB.'
                 name: { type: string }
                 arrivalDeadline: { type: string, format: time, example: '08:30:00' }
-                workplaceLongitude: { type: number, format: double }
-                workplaceLatitude: { type: number, format: double }
+                workplaceAddress:
+                  type: string
+                  minLength: 1
+                  example: 'Kızılırmak Mah. 1443. Cad. No:5, Çankaya/Ankara'
                 vehicleCount: { type: integer, minimum: 1 }
                 vehicleCapacity: { type: integer, minimum: 1 }
       responses:
@@ -251,8 +254,9 @@ components:
           type: [integer, 'null']
           minimum: 1
           description: |
-            Bir durağa atanabilecek en fazla kişi sayısı. Backend senaryodaki en büyük
-            araç kapasitesini geçer; optimizasyon servisi bunu aşan durak üretmez.
+            Bir durağa atanabilecek en fazla kişi sayısı. Backend senaryodaki en küçük
+            araç kapasitesini geçer; optimizasyon servisi bunu aşan talebi aynı konumda
+            ek durak partilerine böler.
     StopGenerationResult:
       type: object
       required: [stops, unassignedPersonIds, unassignedPersons, summary]
@@ -369,7 +373,7 @@ components:
           description: Varış saati `arrivalDeadline` değerini aşmıyorsa true.
     ScenarioResult:
       type: object
-      required: [id, name, status, stops, routes, unassignedPersonIds, deadlineSeconds]
+      required: [id, name, status, workplace, vehicles, stops, routes, unassignedPersonIds, deadlineSeconds]
       properties:
         id: { type: string, format: uuid }
         name: { type: string }
@@ -377,6 +381,12 @@ components:
         deadlineSeconds:
           type: integer
           description: '`arrivalDeadline` alanının saniye karşılığı; 08:30:00 = 30600.'
+        workplace:
+          $ref: '#/components/schemas/Coordinate'
+        vehicles:
+          type: array
+          description: Araçların Excel'den gelen başlangıç konumları ve kapasiteleri.
+          items: { $ref: '#/components/schemas/Vehicle' }
         stops:
           type: array
           description: Rotalarda geçen durakların konumu ve personel ataması.

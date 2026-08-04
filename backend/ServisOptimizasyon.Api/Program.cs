@@ -174,29 +174,36 @@ app.MapPost("/api/v1/scenarios/import", async (
         formErrors["arrivalDeadline"] = ["Varış saati 'HH:mm:ss' biçiminde olmalıdır."];
     }
 
-    // Her iki ayrıştırma da koşulsuz çalıştırılır; `||` kısa devre yaparsa
-    // ikinci `out` değişkeni kesin atanmış olmaz.
-    var hasLongitude = double.TryParse(
-        form["workplaceLongitude"].ToString(),
-        NumberStyles.Float,
-        CultureInfo.InvariantCulture,
-        out var longitude);
-    var hasLatitude = double.TryParse(
-        form["workplaceLatitude"].ToString(),
-        NumberStyles.Float,
-        CultureInfo.InvariantCulture,
-        out var latitude);
-
-    if (!hasLongitude || !hasLatitude)
-        formErrors["workplace"] = ["workplaceLongitude ve workplaceLatitude sayısal olmalıdır."];
+    var workplaceAddress = form["workplaceAddress"].ToString().Trim();
+    if (string.IsNullOrWhiteSpace(workplaceAddress))
+        formErrors["workplaceAddress"] = ["İşyeri adresi zorunludur."];
 
     if (formErrors.Count > 0)
         return Results.ValidationProblem(formErrors);
 
+    GeocodingResult? workplace;
+    try
+    {
+        workplace = await geocodingService.GeocodeAsync(workplaceAddress, cancellationToken);
+    }
+    catch (Exception exception)
+    {
+        return Results.ValidationProblem(new Dictionary<string, string[]>
+        {
+            ["workplaceAddress"] = [$"İşyeri adresi geocoding hatası: {exception.Message}"],
+        });
+    }
+
+    if (workplace is null)
+        return Results.ValidationProblem(new Dictionary<string, string[]>
+        {
+            ["workplaceAddress"] = ["İşyeri adresi için koordinat bulunamadı."],
+        });
+
     var importForm = new ExcelImportForm(
         form["name"].ToString(),
         arrivalDeadline,
-        [longitude, latitude],
+        [workplace.Longitude, workplace.Latitude],
         TryParseInt(form["vehicleCount"].ToString()),
         TryParseInt(form["vehicleCapacity"].ToString()));
 

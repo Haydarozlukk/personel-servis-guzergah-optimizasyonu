@@ -35,7 +35,10 @@ def test_generate_stops_returns_metrics_and_respects_capacity() -> None:
     assert len(result["stops"]) == 2
     assert max(stop["demand"] for stop in result["stops"]) == 1
     assert result["summary"]["assignedPersonCount"] == 2
-    assert result["summary"]["maximumWalkingDistanceMeters"] == 300.0
+    # Aynı uygun durak kapasite dolduğunda yeni bir parti olarak tekrar
+    # kullanılabilir; bu örnekte ikinci kişiyi daha yakın olan 200 m'lik
+    # durakta tutar.
+    assert result["summary"]["maximumWalkingDistanceMeters"] == 200.0
     assert result["summary"]["matrixChunkCount"] == 1
 
 

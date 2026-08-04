@@ -305,7 +305,7 @@ public class ScenarioOrchestratorTests
     }
 
     [Fact]
-    public async Task MaxStopDemandIsSentToTheOptimizationService()
+    public async Task SmallestVehicleCapacityIsSentAsMaxStopDemand()
     {
         var optimizationHandler = new RecordingHandler(SingleStopResponse);
         var vroomHandler = new RecordingHandler(VroomRouteResponse());
@@ -326,7 +326,7 @@ public class ScenarioOrchestratorTests
             CancellationToken.None);
 
         using var document = JsonDocument.Parse(optimizationHandler.LastRequestBody);
-        Assert.Equal(22, document.RootElement.GetProperty("maxStopDemand").GetInt32());
+        Assert.Equal(16, document.RootElement.GetProperty("maxStopDemand").GetInt32());
         Assert.Equal(500, document.RootElement.GetProperty("maxWalkingDistanceMeters").GetInt32());
     }
 
