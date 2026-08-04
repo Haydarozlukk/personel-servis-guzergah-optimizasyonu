@@ -24,6 +24,12 @@ Kurum personelinin en fazla 500 metre **gerçek yürüme mesafesi** ile ulaşabi
 2. Ankara OSM verisinden `car` ve `foot` için OSRM ön işleme çıktısı üretin; ayrıntı için `infrastructure/osrm/README.md`.
 3. `docker compose --profile routing up --build` çalıştırın.
 
+İlk çalıştırmada `nominatim` servisi Türkiye OpenStreetMap verisini otomatik indirip
+adres indeksini oluşturur. Bu işlem bilgisayarın hızına göre uzun sürebilir; backend
+Nominatim hazır olana kadar otomatik olarak bekler. İndeks `nominatim-data` volume'unda
+saklandığı için sonraki açılışlarda yeniden oluşturulmaz. Nominatim durum uç noktası
+yerel geliştirmede `http://localhost:8081/status` adresindedir.
+
 `--profile routing` verilmezse yalnızca `postgres`, `backend`, `optimization` ve `frontend` ayağa kalkar;
 OSRM ve VROOM olmadığı için durak üretimi `503` döner. Uygulama servisleri yine de sağlıklı çalışır.
 

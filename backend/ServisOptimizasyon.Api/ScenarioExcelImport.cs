@@ -12,6 +12,13 @@ public sealed record ExcelImportResult(
     ScenarioInput? Input,
     Dictionary<string, string[]> Errors);
 
+public sealed record AddressImportRow(int RowNumber, string Id, string Address);
+
+public sealed record AddressExcelImportResult(
+    List<AddressImportRow>? Persons,
+    List<VehicleInput>? Vehicles,
+    Dictionary<string, string[]> Errors);
+
 /// <summary>
 /// Excel'den senaryo girdisi üretir. Yüklenen dosya diske yazılmaz ve içeriği
 /// loglanmaz; personel konumu kişisel veridir (docs/kararlar.md).
@@ -28,6 +35,7 @@ public static class ScenarioExcelImport
     private static readonly string[] IdHeaders = ["id", "kimlik"];
     private static readonly string[] LongitudeHeaders = ["boylam", "longitude", "lon", "lng"];
     private static readonly string[] LatitudeHeaders = ["enlem", "latitude", "lat"];
+    private static readonly string[] AddressHeaders = ["adres", "address", "acik adres", "açık adres"];
     private static readonly string[] CapacityHeaders = ["kapasite", "capacity"];
 
     public static byte[] CreateTemplate()
@@ -36,11 +44,9 @@ public static class ScenarioExcelImport
 
         var personSheet = workbook.Worksheets.Add(PersonSheetName);
         personSheet.Cell(1, 1).Value = "id";
-        personSheet.Cell(1, 2).Value = "boylam";
-        personSheet.Cell(1, 3).Value = "enlem";
+        personSheet.Cell(1, 2).Value = "adres";
         personSheet.Cell(2, 1).Value = "person-001";
-        personSheet.Cell(2, 2).Value = 32.8597;
-        personSheet.Cell(2, 3).Value = 39.9334;
+        personSheet.Cell(2, 2).Value = "Kızılay Mahallesi, Çankaya, Ankara";
         personSheet.Row(1).Style.Font.Bold = true;
         personSheet.Columns().AdjustToContents();
 
@@ -59,6 +65,68 @@ public static class ScenarioExcelImport
         using var stream = new MemoryStream();
         workbook.SaveAs(stream);
         return stream.ToArray();
+    }
+
+    public static AddressExcelImportResult ParseAddresses(Stream stream, ExcelImportForm form)
+    {
+        var errors = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+        if (string.IsNullOrWhiteSpace(form.Name))
+            Add(errors, "name", "Senaryo adı boş olamaz.");
+        if (!ScenarioValidator.IsCoordinate(form.Workplace))
+            Add(errors, "workplace", "İşyeri koordinatı geçerli olmalıdır.");
+
+        XLWorkbook workbook;
+        try
+        {
+            workbook = new XLWorkbook(stream);
+        }
+        catch (Exception exception)
+        {
+            Add(errors, "file", $"Excel dosyası okunamadı: {exception.Message}");
+            return new AddressExcelImportResult(null, null, Build(errors));
+        }
+
+        using (workbook)
+        {
+            var sheet = FindSheet(workbook, PersonSheetName);
+            var header = sheet?.FirstRowUsed();
+            if (sheet is null || header is null)
+            {
+                Add(errors, "file", $"'{PersonSheetName}' sayfası bulunamadı veya boş.");
+                return new AddressExcelImportResult(null, null, Build(errors));
+            }
+
+            var columns = ReadHeader(header);
+            var idColumn = FindColumn(columns, IdHeaders);
+            var addressColumn = FindColumn(columns, AddressHeaders);
+            if (idColumn is null || addressColumn is null)
+            {
+                Add(errors, "file", $"'{PersonSheetName}' sayfasında 'id' ve 'adres' sütunları zorunludur.");
+                return new AddressExcelImportResult(null, null, Build(errors));
+            }
+
+            var persons = new List<AddressImportRow>();
+            var lastRow = sheet.LastRowUsed()?.RowNumber() ?? header.RowNumber();
+            for (var rowNumber = header.RowNumber() + 1; rowNumber <= lastRow; rowNumber++)
+            {
+                var id = sheet.Cell(rowNumber, idColumn.Value).GetString().Trim();
+                var address = sheet.Cell(rowNumber, addressColumn.Value).GetString().Trim();
+                if (id.Length == 0 && address.Length == 0)
+                    continue;
+                if (id.Length == 0)
+                    Add(errors, "persons", $"{rowNumber}. satırda id boş.");
+                else if (address.Length == 0)
+                    Add(errors, "persons", $"{rowNumber}. satırda adres boş.");
+                else
+                    persons.Add(new AddressImportRow(rowNumber, id, address));
+            }
+
+            if (persons.Count == 0)
+                Add(errors, "persons", $"'{PersonSheetName}' sayfasında veri satırı bulunamadı.");
+
+            var vehicles = ReadVehicles(workbook, form, errors);
+            return new AddressExcelImportResult(persons, vehicles, Build(errors));
+        }
     }
 
     public static ExcelImportResult Parse(Stream stream, ExcelImportForm form)

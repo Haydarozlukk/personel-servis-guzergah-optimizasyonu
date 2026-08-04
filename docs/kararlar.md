@@ -9,6 +9,17 @@
 - İlk PoC yalnızca sabah işe gidişini kapsar.
 - Kamuya açık Nominatim'e gerçek personel adresi gönderilmez. Test verisi maskeli/sentetiktir.
 
+## 2026-08-04 — Excel adreslerinin koordinata dönüştürülmesi
+
+- Personel Excel sayfası `id` ve `adres` sütunlarını kabul eder; koordinat dönüşümü
+  tarayıcıda değil backend'de yapılır.
+- Geocoding için herkese açık varsayılan servis tanımlanmaz. `Geocoding:BaseUrl`
+  yalnızca kurumun onayladığı/self-hosted Nominatim uyumlu uç noktayı göstermelidir.
+- Ham Excel diske yazılmaz, adresler loglanmaz ve aynı süreçte yinelenen sorgular
+  bellek içi önbellekten karşılanır.
+- Bulunamayan adresler optimizasyona aktarılmaz; kullanıcıya Excel satır numarası ve
+  personel kimliğiyle doğrulama hatası döner.
+
 ## 2026-08-03 — Backend kalıcılık ve iş kuyruğu
 
 - Senaryo şeması **backend açılışında idempotent DDL ile** kurulur; `init.sql` yalnızca PostGIS uzantısını

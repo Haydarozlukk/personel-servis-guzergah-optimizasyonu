@@ -171,10 +171,34 @@ public class ScenarioExcelImportTests
     {
         using var stream = new MemoryStream(ScenarioExcelImport.CreateTemplate());
 
-        var result = ScenarioExcelImport.Parse(stream, DefaultForm);
+        var result = ScenarioExcelImport.ParseAddresses(stream, DefaultForm);
 
         Assert.Empty(result.Errors);
-        Assert.Single(result.Input!.Persons);
-        Assert.Single(result.Input.Vehicles);
+        var person = Assert.Single(result.Persons!);
+        Assert.Equal("person-001", person.Id);
+        Assert.Contains("Ankara", person.Address);
+        Assert.Single(result.Vehicles!);
+    }
+
+    [Fact]
+    public void AddressRowsReportTheirExcelRowNumber()
+    {
+        using var stream = Workbook(workbook =>
+        {
+            var sheet = workbook.Worksheets.Add("personel");
+            sheet.Cell(1, 1).Value = "id";
+            sheet.Cell(1, 2).Value = "adres";
+            sheet.Cell(2, 1).Value = "person-001";
+            sheet.Cell(2, 2).Value = "Kızılay, Çankaya, Ankara";
+            sheet.Cell(3, 1).Value = "person-002";
+        });
+
+        var result = ScenarioExcelImport.ParseAddresses(
+            stream,
+            DefaultForm with { VehicleCount = 1, VehicleCapacity = 16 });
+
+        Assert.Contains(result.Errors["persons"], message => message.Contains("3. satır"));
+        var person = Assert.Single(result.Persons!);
+        Assert.Equal(2, person.RowNumber);
     }
 }

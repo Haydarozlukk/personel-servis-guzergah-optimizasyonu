@@ -8,6 +8,17 @@ builder.WebHost.ConfigureKestrel(options => options.Limits.MaxRequestBodySize = 
 
 builder.Services.Configure<OptimizationOptions>(builder.Configuration.GetSection("Optimization"));
 
+var geocodingOptions = builder.Configuration.GetSection("Geocoding").Get<GeocodingOptions>()
+    ?? new GeocodingOptions();
+builder.Services.AddSingleton(geocodingOptions);
+builder.Services.AddHttpClient<IGeocodingService, NominatimGeocodingService>(client =>
+{
+    if (!string.IsNullOrWhiteSpace(geocodingOptions.BaseUrl))
+        client.BaseAddress = new Uri(geocodingOptions.BaseUrl.TrimEnd('/') + "/");
+    client.Timeout = TimeSpan.FromSeconds(30);
+    client.DefaultRequestHeaders.UserAgent.ParseAdd("ServisOptimizasyon/1.0");
+});
+
 var allowedOrigins = (builder.Configuration["Cors:AllowedOrigins"] ?? string.Empty)
     .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 
@@ -120,6 +131,8 @@ app.MapPost("/api/v1/scenarios/import", async (
     HttpRequest request,
     IScenarioStore store,
     ScenarioQueue queue,
+    IGeocodingService geocodingService,
+    GeocodingOptions geocodingConfiguration,
     CancellationToken cancellationToken) =>
 {
     if (!request.HasFormContentType)
@@ -141,6 +154,15 @@ app.MapPost("/api/v1/scenarios/import", async (
         return Results.Json(
             new { title = "Dosya çok büyük.", maxBytes = ScenarioExcelImport.MaxFileBytes },
             statusCode: StatusCodes.Status413PayloadTooLarge);
+
+    if (string.IsNullOrWhiteSpace(geocodingConfiguration.BaseUrl))
+        return Results.Json(
+            new
+            {
+                title = "Geocoding servisi yapılandırılmamış.",
+                detail = "Geocoding:BaseUrl ayarlanmalıdır.",
+            },
+            statusCode: StatusCodes.Status503ServiceUnavailable);
 
     var formErrors = new Dictionary<string, string[]>(StringComparer.Ordinal);
 
@@ -179,13 +201,37 @@ app.MapPost("/api/v1/scenarios/import", async (
         TryParseInt(form["vehicleCapacity"].ToString()));
 
     await using var stream = file.OpenReadStream();
-    var import = ScenarioExcelImport.Parse(stream, importForm);
+    var import = ScenarioExcelImport.ParseAddresses(stream, importForm);
 
-    if (import.Input is null)
+    if (import.Persons is null || import.Vehicles is null || import.Errors.Count > 0)
         return Results.ValidationProblem(import.Errors);
 
+    var geocoded = await GeocodePersonsAsync(
+        import.Persons,
+        geocodingService,
+        geocodingConfiguration.MaxConcurrency,
+        cancellationToken);
+    if (geocoded.Errors.Count > 0)
+        return Results.ValidationProblem(new Dictionary<string, string[]>
+        {
+            ["persons"] = geocoded.Errors.ToArray(),
+        });
+
+    var input = new ScenarioInput
+    {
+        Name = importForm.Name,
+        Direction = "morning_inbound",
+        Workplace = importForm.Workplace,
+        ArrivalDeadline = importForm.ArrivalDeadline,
+        Persons = geocoded.Persons,
+        Vehicles = import.Vehicles,
+    };
+    var validationErrors = ScenarioValidator.Validate(input);
+    if (validationErrors.Count > 0)
+        return Results.ValidationProblem(validationErrors);
+
     var scenarioId = Guid.NewGuid();
-    await store.CreateAsync(scenarioId, import.Input, cancellationToken);
+    await store.CreateAsync(scenarioId, input, cancellationToken);
     await queue.EnqueueAsync(new ScenarioJob(scenarioId, ScenarioJobKind.FullOptimization), cancellationToken);
 
     return Results.Accepted(
@@ -243,6 +289,42 @@ app.Run();
 
 static int? TryParseInt(string? value) =>
     int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed) ? parsed : null;
+
+static async Task<(List<PersonInput> Persons, List<string> Errors)> GeocodePersonsAsync(
+    List<AddressImportRow> rows,
+    IGeocodingService geocodingService,
+    int maxConcurrency,
+    CancellationToken cancellationToken)
+{
+    var persons = new PersonInput?[rows.Count];
+    var errors = new string?[rows.Count];
+    using var gate = new SemaphoreSlim(Math.Clamp(maxConcurrency, 1, 10));
+
+    await Task.WhenAll(rows.Select(async (row, index) =>
+    {
+        await gate.WaitAsync(cancellationToken);
+        try
+        {
+            var result = await geocodingService.GeocodeAsync(row.Address, cancellationToken);
+            if (result is null)
+                errors[index] = $"{row.RowNumber}. satırdaki adres bulunamadı (id: {row.Id}).";
+            else
+                persons[index] = new PersonInput(row.Id, [result.Longitude, result.Latitude]);
+        }
+        catch (HttpRequestException exception)
+        {
+            errors[index] = $"{row.RowNumber}. satır geocoding hatası (id: {row.Id}): {exception.Message}";
+        }
+        finally
+        {
+            gate.Release();
+        }
+    }));
+
+    return (
+        persons.Where(person => person is not null).Select(person => person!).ToList(),
+        errors.Where(error => error is not null).Select(error => error!).ToList());
+}
 
 static async Task EnsureSchemaWithRetryAsync(WebApplication app)
 {
