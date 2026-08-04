@@ -13,7 +13,7 @@
 # Python
 **/__pycache__/
 **/.pytest_cache/
-**/.venv/
+**/.venv/x
 **/*.egg-info/
 # setuptools `pip install .` sirasinda birakilan derleme ciktisi
 optimization/build/
@@ -26,3 +26,6 @@ infrastructure/postgres-data/
 .vs/
 .vscode/
 *.user
+
+# Local-only Docker Compose overrides (e.g. Apple Silicon platform pins)
+compose.override.yaml

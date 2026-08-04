@@ -57,6 +57,52 @@ Bugün 500 m çemberi duraklara değil **işyerine** çiziliyor — kavramsal ol
 
 Not: `docs/kararlar.md` gereği gerçek personel adresi ne depoya ne de public Nominatim'e gider; geocoding UI'da yapılmayacak.
 
+## API talepleri (Haydar'a)
+
+P1-E5 kapsamında istenen manuel düzenleme ve senaryo karşılaştırma için arayüzde
+gösterecek veri yok — aşağıdaki uçlar olmadan bu iki özellik inşa edilemiyor.
+`POST /api/v1/scenarios/{id}/reoptimize` zaten var ve kalıcılaştırılmış
+duraklarla rotayı yeniden hesaplıyor; aşağıdaki uçlar yalnızca *duraklar/atamalar*
+üzerinde manuel değişiklik yapmayı sağlıyor, rota hesaplamasını değil — değişiklik
+sonrası frontend zaten var olan `/reoptimize`'ı çağırır.
+
+### Manuel düzenleme
+
+**`PATCH /api/v1/scenarios/{scenarioId}/stops/{stopId}`** — durağı taşı
+- Gövde: `{ "location": [boylam, enlem] }`
+- Backend, durağa atanmış her personelin `walkingDistancesMeters`/
+  `walkingDurationsSeconds` değerini foot-OSRM ile yeniden hesaplar (tek durak,
+  küçük matris).
+- Cevap: güncellenmiş `Stop` nesnesi + `personsOverLimit: string[]` (500 m'yi
+  aşan ama yine de atanmış kalan personel kimlikleri — frontend bunları
+  kullanıcıya "yeniden ata" uyarısıyla gösterir).
+- Senaryonun kayıtlı durağı yoksa `409` (reoptimize ile aynı kısıt).
+
+**`POST /api/v1/scenarios/{scenarioId}/persons/{personId}/reassign`** — personeli başka bir durağa taşı
+- Gövde: `{ "stopId": "stop-003" }` (yalnızca senaryodaki mevcut bir durağa taşıma;
+  yeni durak oluşturma kapsam dışı — onu `PATCH .../stops/{stopId}` ile zaten
+  var olan bir durağı taşıyarak yapıyoruz)
+- Backend personeli eski durağın `assignedPersonIds` listesinden çıkarır, yeni
+  durağa ekler; yeni durağa gerçek yürüme mesafesini/süresini foot-OSRM ile
+  hesaplar.
+- Cevap: `{ distanceMeters, durationSeconds, overLimit: boolean }`.
+- Bilinçli tasarım kararı: 500 m sınırını aşan manuel taşımayı **reddetme,
+  `overLimit` ile işaretleyip kabul et** — bu zaten kullanıcının bilinçli
+  override'ı, otomatik atamadan farklı olarak.
+- Durak veya personel senaryoda bulunamazsa `404`.
+
+### Senaryo karşılaştırma
+
+Karşılaştırma ekranının hangi iki senaryoyu karşılaştıracağını seçebilmesi için
+bir liste ucu gerekiyor — şu an yalnızca tekil `GET /api/v1/scenarios/{id}` var.
+
+**`GET /api/v1/scenarios?limit=20&offset=0`** — senaryo listesi
+- Cevap: `{ items: [{ id, name, status, createdAt, routeCount, unassignedPersonCount }], total }`,
+  varsayılan sıralama `createdAt` azalan.
+- Karşılaştırmanın kendisi için yeni bir uca gerek yok: frontend seçilen iki id
+  için mevcut `GET /api/v1/scenarios/{id}`'yi iki kez çağırıp
+  `distanceMeters`/`durationSeconds`/`load` farkını istemci tarafında hesaplar.
+
 ### P2-E6 — Build ve test hijyeni
 
 - `Dockerfile:3-4` yalnızca `package.json` kopyalayıp `npm install` çalıştırıyor; mevcut `package-lock.json` kullanılmıyor → build'ler tekrarlanabilir değil. `COPY package*.json ./` + `npm ci` yap.
