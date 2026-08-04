@@ -43,10 +43,12 @@ export function ExcelImportForm({ onSubmit, disabled, isBusy }: ExcelImportFormP
 
   return (
     <section className="controls excel-import" aria-label="Excel'den senaryo yükle">
-      <label>Senaryo adı
+      <label>
+        <span>Senaryo adı</span>
         <input type="text" value={name} disabled={isBusy} onChange={(event) => setName(event.target.value)} />
       </label>
-      <label>Varış saati
+      <label>
+        <span>Varış saati</span>
         <input
           type="time"
           step="1"
@@ -55,7 +57,8 @@ export function ExcelImportForm({ onSubmit, disabled, isBusy }: ExcelImportFormP
           onChange={(event) => setArrivalDeadline(event.target.value)}
         />
       </label>
-      <label>İşyeri boylam
+      <label>
+        <span>İşyeri boylam</span>
         <input
           type="number"
           step="any"
@@ -64,7 +67,8 @@ export function ExcelImportForm({ onSubmit, disabled, isBusy }: ExcelImportFormP
           onChange={(event) => setWorkplaceLongitude(Number(event.target.value))}
         />
       </label>
-      <label>İşyeri enlem
+      <label>
+        <span>İşyeri enlem</span>
         <input
           type="number"
           step="any"
@@ -73,7 +77,8 @@ export function ExcelImportForm({ onSubmit, disabled, isBusy }: ExcelImportFormP
           onChange={(event) => setWorkplaceLatitude(Number(event.target.value))}
         />
       </label>
-      <label>Araç sayısı (araclar sayfası yoksa)
+      <label>
+        <span>Araç sayısı <small>opsiyonel</small></span>
         <input
           type="number"
           min="1"
@@ -82,7 +87,8 @@ export function ExcelImportForm({ onSubmit, disabled, isBusy }: ExcelImportFormP
           onChange={(event) => setVehicleCount(event.target.value)}
         />
       </label>
-      <label>Araç kapasitesi (araclar sayfası yoksa)
+      <label>
+        <span>Araç kapasitesi <small>opsiyonel</small></span>
         <input
           type="number"
           min="1"
@@ -91,7 +97,8 @@ export function ExcelImportForm({ onSubmit, disabled, isBusy }: ExcelImportFormP
           onChange={(event) => setVehicleCapacity(event.target.value)}
         />
       </label>
-      <label>Excel dosyası (.xlsx)
+      <label className="file-field">
+        <span>Excel dosyası <small>.xlsx · en fazla 5 MB</small></span>
         <input
           type="file"
           accept=".xlsx"
@@ -99,13 +106,16 @@ export function ExcelImportForm({ onSubmit, disabled, isBusy }: ExcelImportFormP
           onChange={(event) => setFile(event.target.files?.[0] ?? null)}
         />
       </label>
-      <button type="button" disabled={!canSubmit} onClick={handleSubmit}>
-        {isBusy && <span className="spinner" aria-hidden="true" />}
-        Excel'i yükle ve senaryoyu oluştur
-      </button>
-      <button type="button" className="secondary" disabled={isBusy} onClick={() => void handleTemplateDownload()}>
-        Boş şablon indir
-      </button>
+      <div className="excel-actions">
+        <button className="primary-action" type="button" disabled={!canSubmit} onClick={handleSubmit}>
+          {isBusy && <span className="spinner" aria-hidden="true" />}
+          {isBusy ? 'Planlanıyor…' : "Excel'i yükle ve optimize et"}
+          {!isBusy && <span className="button-arrow" aria-hidden="true">→</span>}
+        </button>
+        <button type="button" className="secondary" disabled={isBusy} onClick={() => void handleTemplateDownload()}>
+          Şablonu indir
+        </button>
+      </div>
       {templateError && <p className="status-error">{templateError}</p>}
     </section>
   )

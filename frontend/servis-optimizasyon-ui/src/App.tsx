@@ -97,91 +97,195 @@ export function App() {
         .filter((person) => unassignedPersonIds.includes(person.id))
         .map((person) => ({ id: person.id, name: person.name, reason: null as string | null }))
 
+  const visibleStopCount = (realStops ?? displayedMockStops).length
+  const visiblePersonCount = mode === 'mock' ? personCount : stopSummary?.assignedPersonCount ?? null
+  const statusTone = scenarioState === 'failed'
+    ? 'error'
+    : scenarioState === 'completed'
+      ? 'success'
+      : isBusy
+        ? 'progress'
+        : 'neutral'
+
   return (
-    <main>
-      <header>
-        <p className="eyebrow">Faz 5 · Gerçek backend ile uçtan uca doğrulandı</p>
-        <h1>Personel Servis Güzergâh Optimizasyonu</h1>
-        <p>Mock veri ile deneyin ya da gerçek personel/araç listenizi Excel'den yükleyin.</p>
-      </header>
-      <div className="mode-toggle" role="tablist" aria-label="Senaryo veri kaynağı">
-        <button
-          type="button"
-          role="tab"
-          aria-selected={mode === 'mock'}
-          className={mode === 'mock' ? 'active' : ''}
-          disabled={isBusy}
-          onClick={() => setMode('mock')}
-        >
-          Mock senaryo
-        </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={mode === 'excel'}
-          className={mode === 'excel' ? 'active' : ''}
-          disabled={isBusy}
-          onClick={() => setMode('excel')}
-        >
-          Excel'den içe aktar
-        </button>
-      </div>
-      {mode === 'mock' ? (
-        <ScenarioControls
-          personCount={personCount}
-          vehicleCount={vehicleCount}
-          vehicleCapacity={vehicleCapacity}
-          onPersonCountChange={setPersonCount}
-          onVehicleCountChange={setVehicleCount}
-          onVehicleCapacityChange={setVehicleCapacity}
-          onSubmit={handleMockSubmit}
-          disabled={isBusy || !isFormValid}
-          isBusy={isBusy}
-          validationErrors={validationErrors}
-          capacityWarning={capacityWarning}
-        />
-      ) : (
-        <ExcelImportForm
-          onSubmit={(form) => void submitExcelImport(form)}
-          disabled={isBusy}
-          isBusy={isBusy}
-        />
-      )}
-      <ScenarioMap
-        routes={displayedRoutes}
-        persons={displayedMockPersons}
-        unassignedPersonIds={unassignedPersonIds}
-        realStops={realStops}
-        mockStops={displayedMockStops}
-        workplace={mockWorkplace}
-      />
-      <aside>
-        <strong>
-          {mode === 'mock'
-            ? `${personCount} personel · ${vehicleCount} araç · araç başına ${vehicleCapacity} koltuk`
-            : "Excel'den içe aktarılan senaryo"}
-        </strong>
-        <span>
-          {(realStops ?? displayedMockStops).length} durak{realStops ? '' : mode === 'mock' ? ' adayı (önizleme)' : ''} ·{' '}
-          {displayedRoutes.length} rota çizildi{scenarioResult ? ' (API sonucu)' : mode === 'mock' ? ' (mock)' : ''}
-        </span>
-        {warnings.length > 0 && <span className="status-warning">{warnings.join(' ')}</span>}
-        {stopSummary && (
-          <span>
-            Gerçek durak özeti: {stopSummary.stopCount} durak · {stopSummary.assignedPersonCount} atanan ·{' '}
-            {stopSummary.unassignedPersonCount} atanamayan personel
-            {stopSummary.averageWalkingDistanceMeters != null &&
-              ` · ort. yürüme ${Math.round(stopSummary.averageWalkingDistanceMeters)} m`}
-            {stopSummary.maximumWalkingDistanceMeters != null &&
-              ` (maks. ${Math.round(stopSummary.maximumWalkingDistanceMeters)} m)`}
-            {stopSummary.averageWalkingDurationSeconds != null &&
-              ` · ort. yürüme süresi ${Math.round(stopSummary.averageWalkingDurationSeconds)} sn`}
+    <main className="app-shell">
+      <header className="topbar">
+        <div className="brand-lockup">
+          <span className="brand-mark" aria-hidden="true">
+            <svg viewBox="0 0 40 40" role="presentation">
+              <path d="M10 11h10c7 0 10 4 10 9s-3 9-10 9H10" />
+              <circle cx="10" cy="11" r="3" />
+              <circle cx="10" cy="29" r="3" />
+              <circle cx="30" cy="20" r="3" />
+            </svg>
           </span>
+          <span>
+            <strong>Servis Optimizasyon</strong>
+            <small>Operasyon paneli</small>
+          </span>
+        </div>
+        <div className="system-status">
+          <span aria-hidden="true" />
+          Planlama servisi hazır
+        </div>
+      </header>
+
+      <section className="hero">
+        <div className="hero-copy">
+          <p className="eyebrow">Akıllı personel ulaşımı</p>
+          <h1>Daha kısa yürüyüşler.<br />Daha verimli servis rotaları.</h1>
+          <p className="hero-description">
+            Personel konumlarını, araç kapasitelerini ve varış saatini birlikte değerlendirerek
+            dakikalar içinde uygulanabilir servis planları oluşturun.
+          </p>
+          <div className="hero-features" aria-label="Optimizasyon özellikleri">
+            <span><i aria-hidden="true">✓</i> 500 m yürüme sınırı</span>
+            <span><i aria-hidden="true">✓</i> Kapasite kontrollü</span>
+            <span><i aria-hidden="true">✓</i> Gerçek yol ağı</span>
+          </div>
+        </div>
+        <div className="hero-route" aria-hidden="true">
+          <div className="route-card route-card-primary">
+            <span className="route-card-icon">↗</span>
+            <span><small>Aktif rota</small><strong>5 araç planlandı</strong></span>
+          </div>
+          <svg viewBox="0 0 420 250" role="presentation">
+            <path className="route-line route-line-shadow" d="M31 198C88 128 116 207 178 139S270 60 388 50" />
+            <path className="route-line" d="M31 198C88 128 116 207 178 139S270 60 388 50" />
+            <circle className="route-point start" cx="31" cy="198" r="9" />
+            <circle className="route-point" cx="178" cy="139" r="7" />
+            <circle className="route-point end" cx="388" cy="50" r="10" />
+          </svg>
+          <div className="route-card route-card-secondary">
+            <span><small>Ortalama doluluk</small><strong>%84</strong></span>
+            <span className="mini-bars"><i /><i /><i /><i /></span>
+          </div>
+        </div>
+      </section>
+
+      <section className="planner-card" aria-labelledby="planner-title">
+        <div className="section-heading planner-heading">
+          <div>
+            <p className="section-kicker">Yeni planlama</p>
+            <h2 id="planner-title">Senaryonuzu oluşturun</h2>
+            <span>Örnek veriyle hızlıca deneyin veya kendi Excel dosyanızı kullanın.</span>
+          </div>
+          <div className="mode-toggle" role="tablist" aria-label="Senaryo veri kaynağı">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={mode === 'mock'}
+              className={mode === 'mock' ? 'active' : ''}
+              disabled={isBusy}
+              onClick={() => setMode('mock')}
+            >
+              Hızlı senaryo
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={mode === 'excel'}
+              className={mode === 'excel' ? 'active' : ''}
+              disabled={isBusy}
+              onClick={() => setMode('excel')}
+            >
+              Excel'den aktar
+            </button>
+          </div>
+        </div>
+        {mode === 'mock' ? (
+          <ScenarioControls
+            personCount={personCount}
+            vehicleCount={vehicleCount}
+            vehicleCapacity={vehicleCapacity}
+            onPersonCountChange={setPersonCount}
+            onVehicleCountChange={setVehicleCount}
+            onVehicleCapacityChange={setVehicleCapacity}
+            onSubmit={handleMockSubmit}
+            disabled={isBusy || !isFormValid}
+            isBusy={isBusy}
+            validationErrors={validationErrors}
+            capacityWarning={capacityWarning}
+          />
+        ) : (
+          <ExcelImportForm
+            onSubmit={(form) => void submitExcelImport(form)}
+            disabled={isBusy}
+            isBusy={isBusy}
+          />
         )}
-        <span className={scenarioState === 'failed' ? 'status-error' : undefined}>{statusMessage[scenarioState]}</span>
-      </aside>
-      <RouteTable routes={displayedRoutes} isMock={mode === 'mock' && !scenarioResult} />
-      <UnassignedList persons={unassignedPersons} />
+      </section>
+
+      <section className="map-section" aria-labelledby="map-title">
+        <div className="section-heading map-heading">
+          <div>
+            <p className="section-kicker">Canlı önizleme</p>
+            <h2 id="map-title">Rota haritası</h2>
+          </div>
+          <div className="map-legend" aria-label="Harita açıklaması">
+            <span><i className="legend-person" /> Personel</span>
+            <span><i className="legend-stop" /> Durak</span>
+            <span><i className="legend-workplace" /> İşyeri</span>
+          </div>
+        </div>
+        <div className="map-layout">
+          <ScenarioMap
+            routes={displayedRoutes}
+            persons={displayedMockPersons}
+            unassignedPersonIds={unassignedPersonIds}
+            realStops={realStops}
+            mockStops={displayedMockStops}
+            workplace={mockWorkplace}
+          />
+          <aside className="scenario-summary" aria-label="Senaryo özeti">
+            <div className="summary-header">
+              <div>
+                <p className="section-kicker">Anlık özet</p>
+                <h3>{scenarioResult?.name ?? (mode === 'mock' ? 'Örnek sabah planı' : 'Excel senaryosu')}</h3>
+              </div>
+              <span className={`summary-state ${statusTone}`}>
+                <i aria-hidden="true" />
+                {scenarioState === 'completed' ? 'Tamamlandı' : isBusy ? 'İşleniyor' : scenarioState === 'failed' ? 'Hata' : 'Önizleme'}
+              </span>
+            </div>
+            <div className="summary-metrics">
+              <div><span>Personel</span><strong>{visiblePersonCount ?? '—'}</strong></div>
+              <div><span>Araç</span><strong>{mode === 'mock' ? vehicleCount : displayedRoutes.length || '—'}</strong></div>
+              <div><span>Durak</span><strong>{visibleStopCount}</strong></div>
+              <div><span>Rota</span><strong>{displayedRoutes.length}</strong></div>
+            </div>
+            <div className={`status-callout ${statusTone}`} aria-live="polite">
+              <span className="status-callout-icon" aria-hidden="true" />
+              <span>{statusMessage[scenarioState]}</span>
+            </div>
+            {warnings.length > 0 && <div className="status-warning">{warnings.join(' ')}</div>}
+            {stopSummary && (
+              <div className="walking-summary">
+                <span>Yürüme performansı</span>
+                <strong>
+                  {stopSummary.averageWalkingDistanceMeters != null
+                    ? `${Math.round(stopSummary.averageWalkingDistanceMeters)} m ortalama`
+                    : 'Veri bekleniyor'}
+                </strong>
+                <div className="walking-bar"><i style={{ width: `${Math.min(100, ((stopSummary.averageWalkingDistanceMeters ?? 0) / 500) * 100)}%` }} /></div>
+                <small>
+                  {stopSummary.assignedPersonCount} atanan · {stopSummary.unassignedPersonCount} atanamayan
+                </small>
+              </div>
+            )}
+          </aside>
+        </div>
+      </section>
+
+      <div className="results-grid">
+        <RouteTable routes={displayedRoutes} isMock={mode === 'mock' && !scenarioResult} />
+        <UnassignedList persons={unassignedPersons} />
+      </div>
+
+      <footer>
+        <span>Servis Optimizasyon</span>
+        <span>OSRM ve VROOM destekli rota planlama</span>
+      </footer>
     </main>
   )
 }

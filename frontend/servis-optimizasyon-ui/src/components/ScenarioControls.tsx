@@ -28,7 +28,8 @@ export function ScenarioControls({
   return (
     <>
       <section className="controls" aria-label="Senaryo girdileri">
-        <label>Personel sayısı
+        <label>
+          <span>Personel sayısı</span>
           <input
             type="number"
             min="1"
@@ -37,7 +38,8 @@ export function ScenarioControls({
             onChange={(event) => onPersonCountChange(Number(event.target.value))}
           />
         </label>
-        <label>Araç sayısı
+        <label>
+          <span>Araç sayısı</span>
           <input
             type="number"
             min="1"
@@ -46,7 +48,8 @@ export function ScenarioControls({
             onChange={(event) => onVehicleCountChange(Number(event.target.value))}
           />
         </label>
-        <label>Araç kapasitesi
+        <label>
+          <span>Araç kapasitesi</span>
           <input
             type="number"
             min="1"
@@ -55,9 +58,10 @@ export function ScenarioControls({
             onChange={(event) => onVehicleCapacityChange(Number(event.target.value))}
           />
         </label>
-        <button type="button" disabled={disabled} onClick={onSubmit}>
+        <button className="primary-action" type="button" disabled={disabled} onClick={onSubmit}>
           {isBusy && <span className="spinner" aria-hidden="true" />}
-          Senaryoyu oluştur
+          {isBusy ? 'Planlanıyor…' : 'Rotayı optimize et'}
+          {!isBusy && <span className="button-arrow" aria-hidden="true">→</span>}
         </button>
       </section>
       {validationErrors.length > 0 && <p className="status-error">{validationErrors.join(' ')}</p>}

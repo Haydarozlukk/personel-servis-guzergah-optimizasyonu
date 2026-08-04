@@ -9,7 +9,13 @@ export function UnassignedList({ persons }: UnassignedListProps) {
 
   return (
     <section className="unassigned-list" aria-label="Atanamayan personel">
-      <h2>Atanamayan personel ({persons.length})</h2>
+      <div className="result-card-header">
+        <div>
+          <p className="section-kicker">Kontrol gerekli</p>
+          <h2>Atanamayan personel</h2>
+        </div>
+        <strong>{persons.length} kişi</strong>
+      </div>
       <ul>
         {persons.map((person) => (
           <li key={person.id}>{person.name}{person.reason ? ` — ${person.reason}` : ''}</li>
