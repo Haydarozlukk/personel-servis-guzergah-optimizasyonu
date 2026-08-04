@@ -273,6 +273,7 @@ public sealed class PostgresScenarioStore(NpgsqlDataSource dataSource) : IScenar
         string name;
         string status;
         int deadlineSeconds;
+        double[] workplace;
         bool? deadlineMet;
         List<string> warnings;
         string? error;
@@ -287,7 +288,8 @@ public sealed class PostgresScenarioStore(NpgsqlDataSource dataSource) : IScenar
                    summary_stop_count, summary_assigned_person_count, summary_unassigned_person_count,
                    summary_average_walking_distance_meters, summary_maximum_walking_distance_meters,
                    summary_average_walking_duration_seconds, summary_maximum_walking_duration_seconds,
-                   summary_matrix_chunk_count
+                   summary_matrix_chunk_count,
+                   ST_X(workplace::geometry), ST_Y(workplace::geometry)
             FROM scenarios WHERE id = @id
             """,
             connection))
@@ -318,8 +320,10 @@ public sealed class PostgresScenarioStore(NpgsqlDataSource dataSource) : IScenar
                     reader.IsDBNull(13) ? null : reader.GetDouble(13),
                     reader.IsDBNull(14) ? null : reader.GetDouble(14),
                     reader.IsDBNull(15) ? 0 : reader.GetInt32(15));
+            workplace = [reader.GetDouble(16), reader.GetDouble(17)];
         }
 
+        var vehicles = await ReadVehiclesAsync(connection, scenarioId, cancellationToken);
         var stops = await ReadStopsAsync(connection, scenarioId, cancellationToken);
         var routes = await ReadRoutesAsync(connection, scenarioId, cancellationToken);
         var unassignedPersons = await ReadUnassignedPersonsAsync(connection, scenarioId, cancellationToken);
@@ -329,6 +333,8 @@ public sealed class PostgresScenarioStore(NpgsqlDataSource dataSource) : IScenar
             name,
             status,
             deadlineSeconds,
+            workplace,
+            vehicles,
             stops,
             routes,
             unassignedPersons.Select(person => person.Id).ToList(),
@@ -601,6 +607,32 @@ public sealed class PostgresScenarioStore(NpgsqlDataSource dataSource) : IScenar
         return true;
     }
 
+    private static async Task<List<VehicleInput>> ReadVehiclesAsync(
+        NpgsqlConnection connection,
+        Guid scenarioId,
+        CancellationToken cancellationToken)
+    {
+        var vehicles = new List<VehicleInput>();
+        await using var command = new NpgsqlCommand(
+            """
+            SELECT vehicle_id, capacity,
+                   ST_X(start_location::geometry), ST_Y(start_location::geometry)
+            FROM scenario_vehicles WHERE scenario_id = @id ORDER BY vehicle_id
+            """,
+            connection);
+        command.Parameters.AddWithValue("id", scenarioId);
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            vehicles.Add(new VehicleInput(
+                reader.GetString(0),
+                reader.GetInt32(1),
+                [reader.GetDouble(2), reader.GetDouble(3)]));
+        }
+
+        return vehicles;
+    }
+
     private static async Task<List<StopResult>> ReadStopsAsync(
         NpgsqlConnection connection,
         Guid scenarioId,
@@ -864,6 +896,8 @@ public sealed class InMemoryScenarioStore : IScenarioStore
             entry.Input.Name,
             entry.Status,
             entry.Input.DeadlineSeconds,
+            entry.Input.Workplace,
+            entry.Input.Vehicles,
             computation?.Stops ?? [],
             computation?.Routes ?? [],
             unassignedPersons.Select(person => person.Id).ToList(),

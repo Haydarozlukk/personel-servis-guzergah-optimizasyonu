@@ -82,10 +82,13 @@ public sealed class ScenarioOrchestrator(
         ScenarioInput input,
         CancellationToken cancellationToken)
     {
-        var maxStopDemand = input.Vehicles.Max(vehicle => vehicle.Capacity);
+        // Bir durağın talebi filodaki her araç tarafından taşınabilir olmalıdır.
+        // En büyük kapasite kullanılırsa küçük araçlar büyük durakları alamaz ve
+        // yeterli toplam kapasite olmasına rağmen VROOM bu araçları boş bırakır.
+        var maxStopDemand = input.Vehicles.Min(vehicle => vehicle.Capacity);
 
         logger.LogInformation(
-            "Durak üretimi başlıyor: {PersonCount} personel, maxStopDemand={MaxStopDemand}.",
+            "Durak üretimi başlıyor: {PersonCount} personel, maxStopDemand={MaxStopDemand} (minimum araç kapasitesi).",
             input.Persons.Count,
             maxStopDemand);
 
