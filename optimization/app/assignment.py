@@ -17,12 +17,12 @@ def select_stops_and_assign_persons(
     matrix_chunk_count: int = 0,
 ) -> StopGenerationResult:
     unassigned_ids = {person.id for person in persons}
-    remaining = list(evaluations)
     selected_stops: list[Stop] = []
+    batch_counts: dict[str, int] = {}
 
-    while unassigned_ids and remaining:
+    while unassigned_ids:
         choices: list[tuple[CandidateEvaluation, list[str], float]] = []
-        for evaluation in remaining:
+        for evaluation in evaluations:
             covered = unassigned_ids.intersection(evaluation.coveredPersonIds)
             ordered = sorted(
                 covered,
@@ -39,14 +39,20 @@ def select_stops_and_assign_persons(
         evaluation, assigned_ids, _ = min(
             choices, key=lambda choice: (-len(choice[1]), choice[2], choice[0].candidate.id)
         )
-        remaining = [item for item in remaining if item.candidate.id != evaluation.candidate.id]
+        batch_number = batch_counts.get(evaluation.candidate.id, 0) + 1
+        batch_counts[evaluation.candidate.id] = batch_number
+        stop_id = (
+            evaluation.candidate.id
+            if batch_number == 1
+            else f"{evaluation.candidate.id}-batch-{batch_number:03d}"
+        )
         distances = {item: evaluation.walkingDistancesMeters[item] for item in assigned_ids}
         durations = {
             item: evaluation.walkingDurationsSeconds[item]
             for item in assigned_ids if item in evaluation.walkingDurationsSeconds
         }
         selected_stops.append(Stop(
-            id=evaluation.candidate.id,
+            id=stop_id,
             location=evaluation.candidate.location,
             assignedPersonIds=assigned_ids,
             walkingDistancesMeters=distances,

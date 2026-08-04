@@ -185,6 +185,8 @@ public sealed record ScenarioResult(
     string Name,
     string Status,
     int DeadlineSeconds,
+    double[] Workplace,
+    List<VehicleInput> Vehicles,
     List<StopResult> Stops,
     List<RouteResult> Routes,
     List<string> UnassignedPersonIds,

@@ -9,7 +9,8 @@ services:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     volumes:
-      - postgres-data:/var/lib/postgresql/data
+      # Eski PoC şemasını taşıyan volume ile çakışmaması için sürümlü uygulama volume'u.
+      - postgres-app-data:/var/lib/postgresql/data
       - ./infrastructure/database/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
@@ -27,6 +28,8 @@ services:
       Services__OptimizationUrl: ${OPTIMIZATION_URL}
       Services__VroomUrl: ${VROOM_URL}
       Geocoding__BaseUrl: ${GEOCODING_URL:-http://nominatim:8080}
+      Geocoding__PublicBaseUrl: https://nominatim.openstreetmap.org
+      Geocoding__PublicViewbox: 32.60,40.05,33.05,39.75
       Cors__AllowedOrigins: ${ALLOWED_ORIGINS:-http://localhost:5173}
     ports:
       - "8080:8080"
@@ -44,14 +47,27 @@ services:
       optimization:
         condition: service_healthy
 
-  # İlk çalıştırmada Türkiye OSM verisini otomatik indirip adres indeksini kurar.
+  # Türkiye extract'ini indirir ve Nominatim'e verilmeden önce Ankara kapsamına
+  # keser. Çıktı volume'da kaldığı için sonraki açılışlarda işlem tekrarlanmaz.
+  nominatim-prepare:
+    build:
+      context: ./infrastructure/nominatim
+    environment:
+      TURKEY_PBF_URL: https://download.geofabrik.de/europe/turkey-latest.osm.pbf
+      # Ankara ilini kapsayan yaklaşık WGS84 bbox: minLon,minLat,maxLon,maxLat.
+      ANKARA_BBOX: 30.80,38.60,34.20,40.90
+    volumes:
+      - nominatim-import:/import
+    restart: "no"
+
+  # İlk çalıştırmada hazırlanmış Ankara PBF'sini otomatik içe aktarır.
   # İndeks kalıcı volume'da tutulduğu için sonraki açılışlarda yeniden import edilmez.
   nominatim:
     image: mediagis/nominatim:5.3
     restart: unless-stopped
     shm_size: 1gb
     environment:
-      PBF_URL: https://download.geofabrik.de/europe/turkey-latest.osm.pbf
+      PBF_PATH: /nominatim/import/ankara.osm.pbf
       IMPORT_STYLE: address
       IMPORT_WIKIPEDIA: "false"
       UPDATE_MODE: none
@@ -62,7 +78,10 @@ services:
       POSTGRES_AUTOVACUUM_WORK_MEM: 256MB
       POSTGRES_EFFECTIVE_CACHE_SIZE: 2GB
     volumes:
-      - nominatim-data:/var/lib/postgresql/16/main
+      - nominatim-ankara-data:/var/lib/postgresql/16/main
+      # Nominatim başlangıç script'i /nominatim altındaki dosyaların sahipliğini
+      # ayarladığı için bu volume salt-okunur bağlanamaz.
+      - nominatim-import:/nominatim/import
     ports:
       - "8081:8080"
     healthcheck:
@@ -71,6 +90,9 @@ services:
       timeout: 10s
       retries: 120
       start_period: 10m
+    depends_on:
+      nominatim-prepare:
+        condition: service_completed_successfully
 
   optimization:
     build:
@@ -122,7 +144,7 @@ services:
     image: ghcr.io/project-osrm/osrm-backend@sha256:3ac496ff8fd7e1af53846179d73d06a97f719c8ad2217d008ed868942398665c
     profiles: ["routing"]
     restart: unless-stopped
-    command: osrm-routed --algorithm mld --max-table-size 10000 /data/car.osrm
+    command: osrm-routed --algorithm mld --max-table-size 10000 /data/car-new.osrm
     volumes:
       - ./infrastructure/osrm/data:/data:ro
     ports:
@@ -152,5 +174,6 @@ services:
       - osrm-car
 
 volumes:
-  postgres-data:
-  nominatim-data:
+  postgres-app-data:
+  nominatim-ankara-data:
+  nominatim-import:

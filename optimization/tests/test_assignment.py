@@ -173,8 +173,10 @@ def test_stop_demand_never_exceeds_limit_and_overflow_uses_other_stop() -> None:
     assert result.unassignedPersonIds == []
 
 
-def test_capacity_overflow_has_a_reason() -> None:
+def test_capacity_overflow_creates_another_batch_at_the_same_stop() -> None:
     persons = [Person(id=f"p{i}", location=(32.85, 39.93)) for i in range(1, 3)]
     evaluations = [make_evaluation("s1", (32.85, 39.93), {"p1": 1.0, "p2": 2.0}, 2)]
     result = select_stops_and_assign_persons(persons, evaluations, max_stop_demand=1)
-    assert result.unassignedPersons[0].reason == "stop_capacity_full"
+    assert [stop.id for stop in result.stops] == ["s1", "s1-batch-002"]
+    assert [stop.demand for stop in result.stops] == [1, 1]
+    assert result.unassignedPersons == []
