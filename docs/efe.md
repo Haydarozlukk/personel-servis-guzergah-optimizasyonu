@@ -49,13 +49,21 @@ Bugün 500 m çemberi duraklara değil **işyerine** çiziliyor — kavramsal ol
 
 ### P1-E5 — Gerçek veri girişi ve manuel düzenleme
 
-`src/mock/scenario.ts` spiral üretici dışında veri girişi yolu yok.
+~~`src/mock/scenario.ts` spiral üretici dışında veri girişi yolu yok.~~ **2026-08-04 güncelleme:**
+mock/"Hızlı senaryo" ekranı ve spiral üretici tamamen kaldırıldı; Excel içe aktarma artık tek giriş
+yolu. `İşyeri boylam/enlem` sayısal alanları da tek bir `İşyeri adresi` metin alanına dönüştürüldü —
+bkz. aşağıdaki "Adres tabanlı girdi" talebi, bu alan şu an backend'de karşılığı olmayan
+`workplaceAddress` gönderiyor.
 
-- Personel/araç listesini elle girme veya Excel yükleme akışı (Haydar H8'de `POST /api/v1/scenarios/import` açıyor).
+Ayrıca haritadan tıklayarak (ad/soyad sorarak) sonradan personel ekleme akışı arayüzde hazır
+(`AddPersonPanel`), ama `POST /api/v1/scenarios/{scenarioId}/persons` ucu olmadığı için şu an
+çalışmıyor — aşağıdaki "Sonradan personel ekleme" talebine bakın.
+
+- Personel/araç listesini elle girme veya Excel yükleme akışı (Haydar H8'de `POST /api/v1/scenarios/import` açıyor). ✅ Excel yükleme tarafı bağlandı.
 - Manuel düzenleme (personelin durağını değiştirme, durak taşıma) için ihtiyaç duyduğun uçları **yazılı** olarak Haydar'a ilet — `docs/efe.md` sorumluluğun bu; uçların kapsamını senin talebin belirliyor.
 - Senaryo karşılaştırma ekranı (iki senaryonun mesafe/süre/doluluk farkı) için gerekli API'yi de aynı belgede iste.
 
-Not: `docs/kararlar.md` gereği gerçek personel adresi ne depoya ne de public Nominatim'e gider; geocoding UI'da yapılmayacak.
+Not: `docs/kararlar.md` gereği gerçek personel adresi ne depoya ne de public Nominatim'e gider; geocoding UI'da yapılmayacak — backend'de (private geocoder ile) yapılacak, bkz. aşağıdaki talep.
 
 ## API talepleri (Haydar'a)
 
@@ -90,6 +98,53 @@ sonrası frontend zaten var olan `/reoptimize`'ı çağırır.
   `overLimit` ile işaretleyip kabul et** — bu zaten kullanıcının bilinçli
   override'ı, otomatik atamadan farklı olarak.
 - Durak veya personel senaryoda bulunamazsa `404`.
+
+### Adres tabanlı girdi (personel + işyeri) — yeni, 2026-08-04
+
+Mock ekranı kaldırıldıktan sonra Excel içe aktarma tek giriş yolu; kullanıcı artık boylam/enlem
+değil **adres** giriyor (hem personel sayfasında hem işyeri alanında). Bugünkü sözleşme ikisini de
+sayı olarak istiyor — bu talep onu adrese çeviriyor.
+
+**`POST /api/v1/scenarios/import`** — `workplaceLongitude`/`workplaceLatitude` form alanları yerine
+tek bir `workplaceAddress: string` alanı. Frontend (`ExcelImportForm`) bu alanı zaten gönderiyor;
+backend adresi private geocoder ile enlem/boylama çevirsin (Nominatim'e gerçek adres gitmiyor,
+`docs/kararlar.md`).
+
+**Excel şablonu** — `personel` sayfasındaki `boylam`/`enlem` sütunları yerine tek bir `adres` sütunu.
+`GET /api/v1/scenarios/import/template` bunu üretmeli; içe aktarma da satır başına adresi geocode
+edip Postgres'e enlem/boylam olarak yazmalı.
+
+**`ScenarioResult`** — işyerinin geocode edilmiş konumunu da cevaba ekle (örn. `workplace: Coordinate`).
+Frontend haritada işyeri iğnesini bugün göstermiyor çünkü elinde hiç koordinat yok; bu alan gelince
+`ScenarioMap`'e geri eklenecek.
+
+### Sonradan personel ekleme + yeniden optimize — yeni, 2026-08-04
+
+Kullanıcı, tamamlanmış bir senaryoya haritadan tıklayarak (ad/soyad girerek) yeni personel
+ekleyebilmeli; "Rotayı yeniden optimize et" dediğinde o kişi Postgres'e yazılmalı ve senaryo
+yeniden optimize edilmeli. Bu, var olan `/reoptimize`'tan farklı — yeni kişi henüz hiçbir durağa
+atanmamış, dolayısıyla yalnızca rotalama değil **durak üretimi de** yeniden çalışmalı.
+
+**`POST /api/v1/scenarios/{scenarioId}/persons`**
+- Gövde: `{ "persons": [{ "firstName": string, "lastName": string, "location": [boylam, enlem] }] }`
+  (konum haritadan tıklanan nokta; adres/geocoding gerekmiyor, bu akış zaten tam koordinat veriyor).
+- Backend: kişileri `scenario_persons`'a ekler, durak üretimini (Kerim'in `/stops/generate`'i) ve
+  VROOM'u tam senaryo için yeniden çalıştırır — mevcut `/reoptimize` gibi kalıcılaştırılmış duraklarla
+  sınırlı kalamaz, çünkü yeni kişi hiçbir durağa ait değil.
+- Cevap: `POST /api/v1/scenarios` ile aynı şekilde `202` + `ScenarioAccepted`; frontend zaten var olan
+  polling (`GET /api/v1/scenarios/{id}`) ile sonucu bekliyor.
+- Senaryo bulunamazsa `404`.
+
+Frontend tarafı (`lib/api.ts` → `addPersonsAndReoptimize`, `useScenarioSubmission.submitNewPersons`,
+`components/AddPersonPanel.tsx`) bu sözleşmeyi varsayarak hazır; uç açılınca ekstra frontend
+değişikliği gerekmemeli.
+
+### Excel yükleme boyut sınırı — yeni, 2026-08-04
+
+`docs/haydar.md` H8: Kestrel `MaxRequestBodySize` 8 MB, dosya sınırı 5 MB. Excel dosyaları
+(özellikle çok satırlı personel listeleri) bu sınırı zorlayabiliyor — sınırı kaldır veya en azından
+büyüt (örn. 25 MB dosya / 30 MB istek). Frontend'deki sabit "en fazla 5 MB" ibaresini kaldırdım;
+413 hata mesajı artık belirli bir sayı iddia etmiyor.
 
 ### Senaryo karşılaştırma
 

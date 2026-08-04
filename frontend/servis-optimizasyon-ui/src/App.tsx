@@ -1,9 +1,10 @@
-import { useMemo, useState } from 'react'
-import { createMockPersons, createMockRoutes, createMockStops, mockWorkplace } from './mock/scenario'
+import { useState } from 'react'
+import type { PersonPoint } from './lib/person'
+import type { NewPersonInput } from './lib/api'
 import { useScenarioSubmission } from './hooks/useScenarioSubmission'
-import { ScenarioControls } from './components/ScenarioControls'
 import { ExcelImportForm } from './components/ExcelImportForm'
 import { ScenarioMap } from './components/ScenarioMap'
+import { AddPersonPanel, type PendingPerson } from './components/AddPersonPanel'
 import { RouteTable } from './components/RouteTable'
 import { UnassignedList } from './components/UnassignedList'
 
@@ -14,67 +15,67 @@ const unassignedReasonLabels: Record<string, string> = {
   not_routed: 'araç kapasitesi yetersiz',
 }
 
-type Mode = 'mock' | 'excel'
-
 export function App() {
-  const [mode, setMode] = useState<Mode>('mock')
-  const [personCount, setPersonCount] = useState(50)
-  const [vehicleCount, setVehicleCount] = useState(5)
-  const [vehicleCapacity, setVehicleCapacity] = useState(16)
-  const { scenarioState, scenarioResult, liveStatus, errorMessage, submitScenario, submitExcelImport } =
+  const [pendingPersons, setPendingPersons] = useState<PendingPerson[]>([])
+  const [isPicking, setIsPicking] = useState(false)
+  const [draftLocation, setDraftLocation] = useState<[number, number] | null>(null)
+  const { scenarioState, scenarioResult, liveStatus, errorMessage, submitExcelImport, submitNewPersons } =
     useScenarioSubmission()
 
-  const mockPersons = useMemo(() => createMockPersons(personCount), [personCount])
-  const mockStops = useMemo(() => createMockStops(mockPersons), [mockPersons])
-  const mockRoutes = useMemo(
-    () => createMockRoutes(mockStops, vehicleCount, mockWorkplace),
-    [mockStops, vehicleCount],
-  )
+  const isBusy = scenarioState === 'submitting' || scenarioState === 'waiting'
 
-  // The Excel-import flow has no client-side spiral data to preview before a
-  // real result comes back — persons and their coordinates only ever exist
-  // server-side, per docs/kararlar.md — so its "mock preview" is empty.
-  const displayedMockPersons = mode === 'mock' ? mockPersons : []
-  const displayedMockStops = mode === 'mock' ? mockStops : []
-  const displayedMockRoutes = mode === 'mock' ? mockRoutes : []
+  function handleTogglePicking() {
+    setDraftLocation(null)
+    setIsPicking((prev) => !prev)
+  }
 
-  const displayedRoutes = scenarioResult?.routes ?? displayedMockRoutes
+  function handleMapPick(position: [number, number]) {
+    if (draftLocation) return
+    setDraftLocation(position)
+  }
+
+  function handleConfirmDraft(firstName: string, lastName: string) {
+    if (!draftLocation) return
+    setPendingPersons((prev) => [
+      ...prev,
+      {
+        id: `manual-${String(prev.length + 1).padStart(3, '0')}`,
+        name: `${firstName} ${lastName}`,
+        firstName,
+        lastName,
+        position: draftLocation,
+      },
+    ])
+    setDraftLocation(null)
+  }
+
+  function handleCancelDraft() {
+    setDraftLocation(null)
+  }
+
+  function handleRemovePending(id: string) {
+    setPendingPersons((prev) => prev.filter((person) => person.id !== id))
+  }
+
+  async function handleReoptimize() {
+    if (!scenarioResult) return
+    const persons: NewPersonInput[] = pendingPersons.map((person) => ({
+      firstName: person.firstName,
+      lastName: person.lastName,
+      location: [person.position[1], person.position[0]],
+    }))
+    const result = await submitNewPersons(scenarioResult.id, persons)
+    if (result?.status === 'completed') {
+      setPendingPersons([])
+      setIsPicking(false)
+    }
+  }
+
+  const displayedRoutes = scenarioResult?.routes ?? []
   const unassignedPersonIds = scenarioResult?.unassignedPersonIds ?? []
   const stopSummary = scenarioResult?.stopGenerationSummary ?? null
   const realStops = scenarioResult?.stops ?? null
   const warnings = scenarioResult?.warnings ?? []
-
-  const isBusy = scenarioState === 'submitting' || scenarioState === 'waiting'
-  const isPositiveInteger = (value: number) => Number.isInteger(value) && value >= 1
-  const validationErrors = [
-    !isPositiveInteger(personCount) && 'Personel sayısı en az 1 olmalı.',
-    !isPositiveInteger(vehicleCount) && 'Araç sayısı en az 1 olmalı.',
-    !isPositiveInteger(vehicleCapacity) && 'Araç kapasitesi en az 1 olmalı.',
-  ].filter((error): error is string => Boolean(error))
-  const isFormValid = validationErrors.length === 0
-  const totalCapacity = vehicleCount * vehicleCapacity
-  const capacityWarning =
-    isFormValid && totalCapacity < personCount
-      ? `Toplam araç kapasitesi (${totalCapacity}) personel sayısından (${personCount}) az; bazı personel atanamayabilir.`
-      : null
-
-  function handleMockSubmit() {
-    void submitScenario({
-      name: 'Kullanıcı tanımlı sabah senaryosu',
-      direction: 'morning_inbound',
-      workplace: [mockWorkplace[1], mockWorkplace[0]],
-      arrivalDeadline: '08:30:00',
-      persons: mockPersons.map((person) => ({
-        id: person.id,
-        location: [person.position[1], person.position[0]],
-      })),
-      vehicles: Array.from({ length: vehicleCount }, (_, index) => ({
-        id: `vehicle-${String(index + 1).padStart(3, '0')}`,
-        capacity: vehicleCapacity,
-        start: [mockWorkplace[1], mockWorkplace[0]],
-      })),
-    })
-  }
 
   const deadlineNote =
     scenarioResult?.deadlineMet === false ? ' Uyarı: bazı araçlar varış saatini kaçırdı.' : ''
@@ -87,18 +88,14 @@ export function App() {
     failed: `Senaryo başarısız: ${errorMessage}`,
   }
 
-  const unassignedPersons = scenarioResult
-    ? (scenarioResult.unassignedPersons ?? []).map((entry) => ({
-        id: entry.id,
-        name: mockPersons.find((person) => person.id === entry.id)?.name ?? entry.id,
-        reason: unassignedReasonLabels[entry.reason] ?? entry.reason,
-      }))
-    : mockPersons
-        .filter((person) => unassignedPersonIds.includes(person.id))
-        .map((person) => ({ id: person.id, name: person.name, reason: null as string | null }))
+  const unassignedPersons = (scenarioResult?.unassignedPersons ?? []).map((entry) => ({
+    id: entry.id,
+    name: entry.id,
+    reason: unassignedReasonLabels[entry.reason] ?? entry.reason,
+  }))
 
-  const visibleStopCount = (realStops ?? displayedMockStops).length
-  const visiblePersonCount = mode === 'mock' ? personCount : stopSummary?.assignedPersonCount ?? null
+  const visibleStopCount = (realStops ?? []).length
+  const visiblePersonCount = stopSummary?.assignedPersonCount ?? null
   const statusTone = scenarioState === 'failed'
     ? 'error'
     : scenarioState === 'completed'
@@ -168,52 +165,14 @@ export function App() {
           <div>
             <p className="section-kicker">Yeni planlama</p>
             <h2 id="planner-title">Senaryonuzu oluşturun</h2>
-            <span>Örnek veriyle hızlıca deneyin veya kendi Excel dosyanızı kullanın.</span>
-          </div>
-          <div className="mode-toggle" role="tablist" aria-label="Senaryo veri kaynağı">
-            <button
-              type="button"
-              role="tab"
-              aria-selected={mode === 'mock'}
-              className={mode === 'mock' ? 'active' : ''}
-              disabled={isBusy}
-              onClick={() => setMode('mock')}
-            >
-              Hızlı senaryo
-            </button>
-            <button
-              type="button"
-              role="tab"
-              aria-selected={mode === 'excel'}
-              className={mode === 'excel' ? 'active' : ''}
-              disabled={isBusy}
-              onClick={() => setMode('excel')}
-            >
-              Excel'den aktar
-            </button>
+            <span>Excel dosyanızı yükleyerek gerçek personel ve işyeri adresleriyle senaryo oluşturun.</span>
           </div>
         </div>
-        {mode === 'mock' ? (
-          <ScenarioControls
-            personCount={personCount}
-            vehicleCount={vehicleCount}
-            vehicleCapacity={vehicleCapacity}
-            onPersonCountChange={setPersonCount}
-            onVehicleCountChange={setVehicleCount}
-            onVehicleCapacityChange={setVehicleCapacity}
-            onSubmit={handleMockSubmit}
-            disabled={isBusy || !isFormValid}
-            isBusy={isBusy}
-            validationErrors={validationErrors}
-            capacityWarning={capacityWarning}
-          />
-        ) : (
-          <ExcelImportForm
-            onSubmit={(form) => void submitExcelImport(form)}
-            disabled={isBusy}
-            isBusy={isBusy}
-          />
-        )}
+        <ExcelImportForm
+          onSubmit={(form) => void submitExcelImport(form)}
+          disabled={isBusy}
+          isBusy={isBusy}
+        />
       </section>
 
       <section className="map-section" aria-labelledby="map-title">
@@ -223,25 +182,35 @@ export function App() {
             <h2 id="map-title">Rota haritası</h2>
           </div>
           <div className="map-legend" aria-label="Harita açıklaması">
-            <span><i className="legend-person" /> Personel</span>
+            <span><i className="legend-person" /> Yeni personel</span>
             <span><i className="legend-stop" /> Durak</span>
-            <span><i className="legend-workplace" /> İşyeri</span>
           </div>
         </div>
+        <AddPersonPanel
+          isPicking={isPicking}
+          onTogglePicking={handleTogglePicking}
+          draftLocation={draftLocation}
+          onConfirmDraft={handleConfirmDraft}
+          onCancelDraft={handleCancelDraft}
+          pendingPersons={pendingPersons}
+          onRemovePending={handleRemovePending}
+          onReoptimize={() => void handleReoptimize()}
+          disabled={isBusy || !scenarioResult}
+          isBusy={isBusy}
+        />
         <div className="map-layout">
           <ScenarioMap
             routes={displayedRoutes}
-            persons={displayedMockPersons}
-            unassignedPersonIds={unassignedPersonIds}
+            pendingPersons={pendingPersons as PersonPoint[]}
             realStops={realStops}
-            mockStops={displayedMockStops}
-            workplace={mockWorkplace}
+            pickMode={isPicking && !draftLocation}
+            onPickLocation={handleMapPick}
           />
           <aside className="scenario-summary" aria-label="Senaryo özeti">
             <div className="summary-header">
               <div>
                 <p className="section-kicker">Anlık özet</p>
-                <h3>{scenarioResult?.name ?? (mode === 'mock' ? 'Örnek sabah planı' : 'Excel senaryosu')}</h3>
+                <h3>{scenarioResult?.name ?? 'Excel senaryosu'}</h3>
               </div>
               <span className={`summary-state ${statusTone}`}>
                 <i aria-hidden="true" />
@@ -250,7 +219,7 @@ export function App() {
             </div>
             <div className="summary-metrics">
               <div><span>Personel</span><strong>{visiblePersonCount ?? '—'}</strong></div>
-              <div><span>Araç</span><strong>{mode === 'mock' ? vehicleCount : displayedRoutes.length || '—'}</strong></div>
+              <div><span>Araç</span><strong>{displayedRoutes.length || '—'}</strong></div>
               <div><span>Durak</span><strong>{visibleStopCount}</strong></div>
               <div><span>Rota</span><strong>{displayedRoutes.length}</strong></div>
             </div>
@@ -278,7 +247,7 @@ export function App() {
       </section>
 
       <div className="results-grid">
-        <RouteTable routes={displayedRoutes} isMock={mode === 'mock' && !scenarioResult} />
+        <RouteTable routes={displayedRoutes} isMock={false} />
         <UnassignedList persons={unassignedPersons} />
       </div>
 

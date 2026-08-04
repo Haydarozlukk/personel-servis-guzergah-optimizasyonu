@@ -5,15 +5,6 @@ import type { components } from './openapi'
 
 export type Coordinate = [longitude: number, latitude: number]
 
-export type ScenarioInput = {
-  name: string
-  direction: 'morning_inbound'
-  workplace: Coordinate
-  arrivalDeadline: string
-  persons: { id: string; location: Coordinate }[]
-  vehicles: { id: string; capacity: number; start: Coordinate }[]
-}
-
 export type ScenarioAccepted = components['schemas']['ScenarioAccepted']
 export type ScenarioStop = components['schemas']['Stop']
 export type RouteStep = components['schemas']['RouteStep']
@@ -37,22 +28,11 @@ async function parseErrorMessage(response: Response): Promise<string> {
   return `İstek başarısız oldu (${response.status}).`
 }
 
-export async function createScenario(input: ScenarioInput): Promise<ScenarioAccepted> {
-  const response = await fetch(`${apiBaseUrl}/api/v1/scenarios`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(input),
-  })
-  if (!response.ok) throw new Error(await parseErrorMessage(response))
-  return response.json()
-}
-
 export type ExcelImportForm = {
   file: File
   name: string
   arrivalDeadline: string
-  workplaceLongitude: number
-  workplaceLatitude: number
+  workplaceAddress: string
   vehicleCount?: number
   vehicleCapacity?: number
 }
@@ -62,13 +42,34 @@ export async function importScenarioFromExcel(form: ExcelImportForm): Promise<Sc
   body.set('file', form.file)
   body.set('name', form.name)
   body.set('arrivalDeadline', form.arrivalDeadline)
-  body.set('workplaceLongitude', String(form.workplaceLongitude))
-  body.set('workplaceLatitude', String(form.workplaceLatitude))
+  body.set('workplaceAddress', form.workplaceAddress)
   if (form.vehicleCount != null) body.set('vehicleCount', String(form.vehicleCount))
   if (form.vehicleCapacity != null) body.set('vehicleCapacity', String(form.vehicleCapacity))
 
   const response = await fetch(`${apiBaseUrl}/api/v1/scenarios/import`, { method: 'POST', body })
-  if (response.status === 413) throw new Error('Dosya boyutu sınırını (5 MB) aşıyor.')
+  if (response.status === 413) throw new Error('Dosya boyutu sınırını aşıyor.')
+  if (!response.ok) throw new Error(await parseErrorMessage(response))
+  return response.json()
+}
+
+export type NewPersonInput = {
+  firstName: string
+  lastName: string
+  location: Coordinate
+}
+
+// Not yet backed by a real endpoint — see docs/efe.md "API talepleri" for the
+// proposed POST /api/v1/scenarios/{scenarioId}/persons contract. Wired up now
+// so the UI flow is ready the moment Haydar ships it.
+export async function addPersonsAndReoptimize(
+  scenarioId: string,
+  persons: NewPersonInput[],
+): Promise<ScenarioAccepted> {
+  const response = await fetch(`${apiBaseUrl}/api/v1/scenarios/${scenarioId}/persons`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ persons }),
+  })
   if (!response.ok) throw new Error(await parseErrorMessage(response))
   return response.json()
 }
