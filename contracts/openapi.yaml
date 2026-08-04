@@ -53,10 +53,10 @@ paths:
     post:
       summary: Excel dosyasından senaryo oluşturur.
       description: |
-          `personel` sayfası zorunludur; başlık satırından sonra `id` ve `adres`
-          sütunları okunur. Adresler backend tarafından yapılandırılmış, kurum içi
-          Nominatim uyumlu servisle WGS84 koordinatına çevrilir. `araclar` sayfası
-          varsa `id`, `kapasite`, `boylam`, `enlem`
+        `personel` sayfası zorunludur; başlık satırından sonra `id` ve `adres`
+        sütunları okunur. Adresler backend tarafından yapılandırılmış, kurum içi
+        Nominatim uyumlu servisle WGS84 koordinatına çevrilir. `araclar` sayfası
+        varsa `id`, `kapasite`, `boylam`, `enlem`
         sütunları okunur; yoksa `vehicleCount` ve `vehicleCapacity` alanları zorunludur
         ve araçlar işyerinden başlatılır.
 
