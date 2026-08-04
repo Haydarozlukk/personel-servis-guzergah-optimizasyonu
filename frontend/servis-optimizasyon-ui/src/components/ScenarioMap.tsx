@@ -1,6 +1,6 @@
-import { Fragment, useMemo } from 'react'
-import { Circle, CircleMarker, MapContainer, Marker, Polyline, Popup, TileLayer, Tooltip } from 'react-leaflet'
-import type { PersonPoint, StopCandidate } from '../mock/scenario'
+import { Fragment } from 'react'
+import { Circle, CircleMarker, MapContainer, Polyline, Popup, TileLayer, Tooltip, useMapEvents } from 'react-leaflet'
+import type { PersonPoint } from '../lib/person'
 import type { ScenarioStop } from '../lib/api'
 import type { RouteLike } from '../lib/routeLike'
 import { decodePolyline } from '../lib/polyline'
@@ -8,42 +8,41 @@ import { routeColors } from '../lib/colors'
 
 type ScenarioMapProps = {
   routes: RouteLike[]
-  persons: PersonPoint[]
-  unassignedPersonIds: string[]
+  pendingPersons: PersonPoint[]
   realStops: ScenarioStop[] | null
-  mockStops: StopCandidate[]
-  workplace: [number, number]
+  pickMode?: boolean
+  onPickLocation?: (position: [number, number]) => void
 }
 
 const WALKING_LIMIT_METERS = 500
 
+function MapClickCatcher({ enabled, onPick }: { enabled: boolean; onPick: (position: [number, number]) => void }) {
+  useMapEvents({
+    click(event) {
+      if (!enabled) return
+      onPick([event.latlng.lat, event.latlng.lng])
+    },
+  })
+  return null
+}
+
 export function ScenarioMap({
   routes,
-  persons,
-  unassignedPersonIds,
+  pendingPersons,
   realStops,
-  mockStops,
-  workplace,
+  pickMode = false,
+  onPickLocation,
 }: ScenarioMapProps) {
-  // personId -> where they walk to and how far, derived from the real result.
-  const personAssignment = useMemo(() => {
-    const assignment = new Map<string, { stopCenter: [number, number]; distanceMeters: number }>()
-    if (!realStops) return assignment
-    for (const stop of realStops) {
-      const stopCenter: [number, number] = [stop.location[1], stop.location[0]]
-      for (const personId of stop.assignedPersonIds) {
-        assignment.set(personId, {
-          stopCenter,
-          distanceMeters: stop.walkingDistancesMeters[personId],
-        })
-      }
-    }
-    return assignment
-  }, [realStops])
-
   return (
-    <section className="map-shell" aria-label="Ankara personel haritası">
-      <MapContainer center={[39.9334, 32.8597]} zoom={13} scrollWheelZoom preferCanvas>
+    <section className={`map-shell${pickMode ? ' picking' : ''}`} aria-label="Ankara personel haritası">
+      <MapContainer
+        center={[39.9334, 32.8597]}
+        zoom={13}
+        scrollWheelZoom
+        preferCanvas
+        className={pickMode ? 'picking-cursor' : undefined}
+      >
+        {onPickLocation && <MapClickCatcher enabled={pickMode} onPick={onPickLocation} />}
         <TileLayer
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
@@ -60,78 +59,34 @@ export function ScenarioMap({
             </Tooltip>
           </Polyline>
         ))}
-        {persons.map((person) => {
-          const assignment = personAssignment.get(person.id)
+        {pendingPersons.map((person) => (
+          <CircleMarker key={person.id} center={person.position} radius={7} pathOptions={{ color: '#2563eb' }}>
+            <Popup>{person.name} · henüz optimize edilmedi</Popup>
+          </CircleMarker>
+        ))}
+        {realStops?.map((stop) => {
+          const center: [number, number] = [stop.location[1], stop.location[0]]
           return (
-            <CircleMarker
-              key={person.id}
-              center={person.position}
-              radius={7}
-              pathOptions={{
-                color: unassignedPersonIds.includes(person.id) ? '#dc2626' : '#216e39',
-              }}
-            >
-              <Popup>
-                {person.name}
-                {assignment && `· yürüme mesafesi ${Math.round(assignment.distanceMeters)} m`}
-              </Popup>
-            </CircleMarker>
+            <Fragment key={stop.id}>
+              <Circle
+                center={center}
+                radius={WALKING_LIMIT_METERS}
+                pathOptions={{ color: '#cc5d00', fillOpacity: 0.04, weight: 1 }}
+              />
+              <CircleMarker
+                center={center}
+                radius={10}
+                pathOptions={{ color: '#cc5d00', fillColor: '#ffb703', fillOpacity: 0.9, weight: 2 }}
+              >
+                <Popup>
+                  {stop.id} · {stop.assignedPersonIds.length} personel · ort. yürüme{' '}
+                  {Math.round(stop.averageWalkingDistanceMeters)} m · kalite{' '}
+                  {Math.round(stop.qualityScore * 100)}%
+                </Popup>
+              </CircleMarker>
+            </Fragment>
           )
         })}
-        {persons.map((person) => {
-          const assignment = personAssignment.get(person.id)
-          if (!assignment) return null
-          return (
-            <Polyline
-              key={`walk-${person.id}`}
-              positions={[person.position, assignment.stopCenter]}
-              pathOptions={{ color: '#216e39', weight: 1.5, opacity: 0.5, dashArray: '4 4' }}
-            />
-          )
-        })}
-        {realStops
-          ? realStops.map((stop) => {
-              const center: [number, number] = [stop.location[1], stop.location[0]]
-              return (
-                <Fragment key={stop.id}>
-                  <Circle
-                    center={center}
-                    radius={WALKING_LIMIT_METERS}
-                    pathOptions={{ color: '#cc5d00', fillOpacity: 0.04, weight: 1 }}
-                  />
-                  <CircleMarker
-                    center={center}
-                    radius={10}
-                    pathOptions={{ color: '#cc5d00', fillColor: '#ffb703', fillOpacity: 0.9, weight: 2 }}
-                  >
-                    <Popup>
-                      {stop.id} · {stop.assignedPersonIds.length} personel · ort. yürüme{' '}
-                      {Math.round(stop.averageWalkingDistanceMeters)} m · kalite{' '}
-                      {Math.round(stop.qualityScore * 100)}%
-                    </Popup>
-                  </CircleMarker>
-                </Fragment>
-              )
-            })
-          : mockStops.map((stop) => (
-              <Fragment key={stop.id}>
-                <Circle
-                  center={stop.location}
-                  radius={WALKING_LIMIT_METERS}
-                  pathOptions={{ color: '#cc5d00', fillOpacity: 0.04, weight: 1 }}
-                />
-                <CircleMarker
-                  center={stop.location}
-                  radius={10}
-                  pathOptions={{ color: '#cc5d00', fillColor: '#ffb703', fillOpacity: 0.9, weight: 2 }}
-                >
-                  <Popup>{stop.id} · {stop.assignedPersonIds.length} personel (önizleme)</Popup>
-                </CircleMarker>
-              </Fragment>
-            ))}
-        <Marker position={workplace}>
-          <Popup>İşyeri hedefi</Popup>
-        </Marker>
       </MapContainer>
     </section>
   )

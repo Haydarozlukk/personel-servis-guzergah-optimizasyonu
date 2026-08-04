@@ -11,22 +11,20 @@ export function ExcelImportForm({ onSubmit, disabled, isBusy }: ExcelImportFormP
   const [file, setFile] = useState<File | null>(null)
   const [name, setName] = useState('Excel senaryosu')
   const [arrivalDeadline, setArrivalDeadline] = useState('08:30:00')
-  const [workplaceLongitude, setWorkplaceLongitude] = useState(32.8541)
-  const [workplaceLatitude, setWorkplaceLatitude] = useState(39.9208)
+  const [workplaceAddress, setWorkplaceAddress] = useState('')
   const [vehicleCount, setVehicleCount] = useState('')
   const [vehicleCapacity, setVehicleCapacity] = useState('')
   const [templateError, setTemplateError] = useState('')
 
-  const canSubmit = !disabled && file !== null
+  const canSubmit = !disabled && file !== null && workplaceAddress.trim() !== ''
 
   function handleSubmit() {
-    if (!file) return
+    if (!file || !workplaceAddress.trim()) return
     onSubmit({
       file,
       name,
       arrivalDeadline,
-      workplaceLongitude,
-      workplaceLatitude,
+      workplaceAddress: workplaceAddress.trim(),
       vehicleCount: vehicleCount === '' ? undefined : Number(vehicleCount),
       vehicleCapacity: vehicleCapacity === '' ? undefined : Number(vehicleCapacity),
     })
@@ -57,24 +55,14 @@ export function ExcelImportForm({ onSubmit, disabled, isBusy }: ExcelImportFormP
           onChange={(event) => setArrivalDeadline(event.target.value)}
         />
       </label>
-      <label>
-        <span>İşyeri boylam</span>
+      <label className="file-field">
+        <span>İşyeri adresi</span>
         <input
-          type="number"
-          step="any"
-          value={workplaceLongitude}
+          type="text"
+          placeholder="Örn. Kızılırmak Mah. 1443. Cad. No:5, Çankaya/Ankara"
+          value={workplaceAddress}
           disabled={isBusy}
-          onChange={(event) => setWorkplaceLongitude(Number(event.target.value))}
-        />
-      </label>
-      <label>
-        <span>İşyeri enlem</span>
-        <input
-          type="number"
-          step="any"
-          value={workplaceLatitude}
-          disabled={isBusy}
-          onChange={(event) => setWorkplaceLatitude(Number(event.target.value))}
+          onChange={(event) => setWorkplaceAddress(event.target.value)}
         />
       </label>
       <label>
@@ -98,7 +86,7 @@ export function ExcelImportForm({ onSubmit, disabled, isBusy }: ExcelImportFormP
         />
       </label>
       <label className="file-field">
-        <span>Excel dosyası <small>.xlsx · en fazla 5 MB</small></span>
+        <span>Excel dosyası <small>.xlsx</small></span>
         <input
           type="file"
           accept=".xlsx"

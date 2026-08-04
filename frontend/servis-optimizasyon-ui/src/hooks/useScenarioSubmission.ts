@@ -1,11 +1,11 @@
 import { useState } from 'react'
 import {
-  createScenario,
+  addPersonsAndReoptimize,
   importScenarioFromExcel,
   waitForScenarioResult,
   type ExcelImportForm,
+  type NewPersonInput,
   type ScenarioAccepted,
-  type ScenarioInput,
   type ScenarioResult,
 } from '../lib/api'
 
@@ -18,7 +18,9 @@ export function useScenarioSubmission() {
   const [liveStatus, setLiveStatus] = useState<LiveStatus>(null)
   const [errorMessage, setErrorMessage] = useState('')
 
-  async function trackAcceptedScenario(requestAccepted: () => Promise<ScenarioAccepted>) {
+  async function trackAcceptedScenario(
+    requestAccepted: () => Promise<ScenarioAccepted>,
+  ): Promise<ScenarioResult | null> {
     setScenarioState('submitting')
     setErrorMessage('')
     setScenarioResult(null)
@@ -32,19 +34,21 @@ export function useScenarioSubmission() {
       setScenarioResult(result)
       setScenarioState(result.status === 'completed' ? 'completed' : 'failed')
       if (result.status === 'failed') setErrorMessage(result.error ?? 'Senaryo başarısız oldu.')
+      return result
     } catch (error) {
       setScenarioState('failed')
       setErrorMessage(error instanceof Error ? error.message : 'Senaryo gönderilemedi.')
+      return null
     }
   }
 
-  async function submitScenario(input: ScenarioInput) {
-    await trackAcceptedScenario(() => createScenario(input))
-  }
-
   async function submitExcelImport(form: ExcelImportForm) {
-    await trackAcceptedScenario(() => importScenarioFromExcel(form))
+    return trackAcceptedScenario(() => importScenarioFromExcel(form))
   }
 
-  return { scenarioState, scenarioResult, liveStatus, errorMessage, submitScenario, submitExcelImport }
+  async function submitNewPersons(scenarioId: string, persons: NewPersonInput[]) {
+    return trackAcceptedScenario(() => addPersonsAndReoptimize(scenarioId, persons))
+  }
+
+  return { scenarioState, scenarioResult, liveStatus, errorMessage, submitExcelImport, submitNewPersons }
 }
