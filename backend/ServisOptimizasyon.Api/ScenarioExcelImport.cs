@@ -12,12 +12,24 @@ public sealed record ExcelImportResult(
     ScenarioInput? Input,
     Dictionary<string, string[]> Errors);
 
-public sealed record AddressImportRow(int RowNumber, string Id, string Address);
+public sealed record AddressImportRow(int RowNumber, string Id, string Name, string Address);
+
+public sealed record VehicleAddressRow(int RowNumber, string Id, int Capacity, string Address);
 
 public sealed record AddressExcelImportResult(
     List<AddressImportRow>? Persons,
     List<VehicleInput>? Vehicles,
+    List<VehicleAddressRow>? VehicleAddressRows,
     Dictionary<string, string[]> Errors);
+
+/// <summary>
+/// Araç sayfasından çözülen konumlar: doğrudan koordinat verilmiş satırlar
+/// <see cref="Vehicles"/> içinde, yalnızca adresi olan satırlar geocoding
+/// beklediği için <see cref="AddressRows"/> içinde döner.
+/// </summary>
+public sealed record VehicleReadResult(
+    List<VehicleInput>? Vehicles,
+    List<VehicleAddressRow>? AddressRows);
 
 /// <summary>
 /// Excel'den senaryo girdisi üretir. Yüklenen dosya diske yazılmaz ve içeriği
@@ -32,7 +44,9 @@ public static class ScenarioExcelImport
     private const string PersonSheetName = "personel";
     private const string VehicleSheetName = "araclar";
 
-    private static readonly string[] IdHeaders = ["id", "kimlik"];
+    private static readonly string[] PersonIdHeaders = ["sicil numarası", "sicil no", "sicil", "id", "kimlik"];
+    private static readonly string[] VehicleIdHeaders = ["plaka", "id", "kimlik"];
+    private static readonly string[] NameHeaders = ["ad soyad", "ad-soyad", "adsoyad", "isim"];
     private static readonly string[] LongitudeHeaders = ["boylam", "longitude", "lon", "lng"];
     private static readonly string[] LatitudeHeaders = ["enlem", "latitude", "lat"];
     private static readonly string[] AddressHeaders = ["adres", "address", "acik adres", "açık adres"];
@@ -43,22 +57,22 @@ public static class ScenarioExcelImport
         using var workbook = new XLWorkbook();
 
         var personSheet = workbook.Worksheets.Add(PersonSheetName);
-        personSheet.Cell(1, 1).Value = "id";
-        personSheet.Cell(1, 2).Value = "adres";
-        personSheet.Cell(2, 1).Value = "person-001";
-        personSheet.Cell(2, 2).Value = "Kızılay Mahallesi, Çankaya, Ankara";
+        personSheet.Cell(1, 1).Value = "sicil numarası";
+        personSheet.Cell(1, 2).Value = "ad soyad";
+        personSheet.Cell(1, 3).Value = "adres";
+        personSheet.Cell(2, 1).Value = "10234";
+        personSheet.Cell(2, 2).Value = "Ahmet Yılmaz";
+        personSheet.Cell(2, 3).Value = "Kızılay Mahallesi, Çankaya, Ankara";
         personSheet.Row(1).Style.Font.Bold = true;
         personSheet.Columns().AdjustToContents();
 
         var vehicleSheet = workbook.Worksheets.Add(VehicleSheetName);
-        vehicleSheet.Cell(1, 1).Value = "id";
+        vehicleSheet.Cell(1, 1).Value = "plaka";
         vehicleSheet.Cell(1, 2).Value = "kapasite";
-        vehicleSheet.Cell(1, 3).Value = "boylam";
-        vehicleSheet.Cell(1, 4).Value = "enlem";
-        vehicleSheet.Cell(2, 1).Value = "vehicle-001";
+        vehicleSheet.Cell(1, 3).Value = "adres";
+        vehicleSheet.Cell(2, 1).Value = "06 ABC 123";
         vehicleSheet.Cell(2, 2).Value = 16;
-        vehicleSheet.Cell(2, 3).Value = 32.8541;
-        vehicleSheet.Cell(2, 4).Value = 39.9208;
+        vehicleSheet.Cell(2, 3).Value = "Ostim Mahallesi, Yenimahalle, Ankara";
         vehicleSheet.Row(1).Style.Font.Bold = true;
         vehicleSheet.Columns().AdjustToContents();
 
@@ -83,7 +97,7 @@ public static class ScenarioExcelImport
         catch (Exception exception)
         {
             Add(errors, "file", $"Excel dosyası okunamadı: {exception.Message}");
-            return new AddressExcelImportResult(null, null, Build(errors));
+            return new AddressExcelImportResult(null, null, null, Build(errors));
         }
 
         using (workbook)
@@ -93,16 +107,20 @@ public static class ScenarioExcelImport
             if (sheet is null || header is null)
             {
                 Add(errors, "file", $"'{PersonSheetName}' sayfası bulunamadı veya boş.");
-                return new AddressExcelImportResult(null, null, Build(errors));
+                return new AddressExcelImportResult(null, null, null, Build(errors));
             }
 
             var columns = ReadHeader(header);
-            var idColumn = FindColumn(columns, IdHeaders);
+            var idColumn = FindColumn(columns, PersonIdHeaders);
+            var nameColumn = FindColumn(columns, NameHeaders);
             var addressColumn = FindColumn(columns, AddressHeaders);
-            if (idColumn is null || addressColumn is null)
+            if (idColumn is null || nameColumn is null || addressColumn is null)
             {
-                Add(errors, "file", $"'{PersonSheetName}' sayfasında 'id' ve 'adres' sütunları zorunludur.");
-                return new AddressExcelImportResult(null, null, Build(errors));
+                Add(
+                    errors,
+                    "file",
+                    $"'{PersonSheetName}' sayfasında 'sicil numarası', 'ad soyad' ve 'adres' sütunları zorunludur.");
+                return new AddressExcelImportResult(null, null, null, Build(errors));
             }
 
             var persons = new List<AddressImportRow>();
@@ -110,22 +128,29 @@ public static class ScenarioExcelImport
             for (var rowNumber = header.RowNumber() + 1; rowNumber <= lastRow; rowNumber++)
             {
                 var id = sheet.Cell(rowNumber, idColumn.Value).GetString().Trim();
+                var name = sheet.Cell(rowNumber, nameColumn.Value).GetString().Trim();
                 var address = sheet.Cell(rowNumber, addressColumn.Value).GetString().Trim();
-                if (id.Length == 0 && address.Length == 0)
+                if (id.Length == 0 && name.Length == 0 && address.Length == 0)
                     continue;
                 if (id.Length == 0)
-                    Add(errors, "persons", $"{rowNumber}. satırda id boş.");
+                    Add(errors, "persons", $"{rowNumber}. satırda sicil numarası boş.");
+                else if (name.Length == 0)
+                    Add(errors, "persons", $"{rowNumber}. satırda ad soyad boş.");
                 else if (address.Length == 0)
                     Add(errors, "persons", $"{rowNumber}. satırda adres boş.");
                 else
-                    persons.Add(new AddressImportRow(rowNumber, id, address));
+                    persons.Add(new AddressImportRow(rowNumber, id, name, address));
             }
 
             if (persons.Count == 0)
                 Add(errors, "persons", $"'{PersonSheetName}' sayfasında veri satırı bulunamadı.");
 
-            var vehicles = ReadVehicles(workbook, form, errors);
-            return new AddressExcelImportResult(persons, vehicles, Build(errors));
+            var vehicleResult = ReadVehicles(workbook, form, errors);
+            return new AddressExcelImportResult(
+                persons,
+                vehicleResult?.Vehicles,
+                vehicleResult?.AddressRows,
+                Build(errors));
         }
     }
 
@@ -154,9 +179,15 @@ public static class ScenarioExcelImport
         using (workbook)
         {
             var persons = ReadPersons(workbook, errors);
-            var vehicles = ReadVehicles(workbook, form, errors);
+            var vehicleResult = ReadVehicles(workbook, form, errors);
 
-            if (errors.Count > 0 || persons is null || vehicles is null)
+            if (vehicleResult is { AddressRows.Count: > 0 })
+                Add(
+                    errors,
+                    "vehicles",
+                    $"'{VehicleSheetName}' sayfasındaki adres satırları bu uçta desteklenmiyor; boylam/enlem sağlayın.");
+
+            if (errors.Count > 0 || persons is null || vehicleResult?.Vehicles is null)
                 return new ExcelImportResult(null, Build(errors));
 
             var input = new ScenarioInput
@@ -166,7 +197,7 @@ public static class ScenarioExcelImport
                 Workplace = form.Workplace,
                 ArrivalDeadline = form.ArrivalDeadline,
                 Persons = persons,
-                Vehicles = vehicles,
+                Vehicles = vehicleResult.Vehicles,
             };
 
             var validationErrors = ScenarioValidator.Validate(input);
@@ -198,13 +229,16 @@ public static class ScenarioExcelImport
         }
 
         var columns = ReadHeader(headerRow);
-        var idColumn = FindColumn(columns, IdHeaders);
+        var idColumn = FindColumn(columns, PersonIdHeaders);
         var longitudeColumn = FindColumn(columns, LongitudeHeaders);
         var latitudeColumn = FindColumn(columns, LatitudeHeaders);
 
         if (idColumn is null || longitudeColumn is null || latitudeColumn is null)
         {
-            Add(errors, "file", $"'{PersonSheetName}' sayfasında 'id', 'boylam' ve 'enlem' sütunları zorunludur.");
+            Add(
+                errors,
+                "file",
+                $"'{PersonSheetName}' sayfasında 'sicil numarası', 'boylam' ve 'enlem' sütunları zorunludur.");
             return null;
         }
 
@@ -235,7 +269,13 @@ public static class ScenarioExcelImport
         return persons;
     }
 
-    private static List<VehicleInput>? ReadVehicles(
+    /// <summary>
+    /// Araç satırları öncelik sırasıyla çözülür: boylam/enlem sütunları varsa
+    /// doğrudan kullanılır (eski dosyalarla uyumluluk için), yoksa 'adres'
+    /// sütunu geocoding için satır listesine eklenir, o da yoksa araç
+    /// işyerinden başlar.
+    /// </summary>
+    private static VehicleReadResult? ReadVehicles(
         XLWorkbook workbook,
         ExcelImportForm form,
         Dictionary<string, List<string>> errors)
@@ -243,26 +283,33 @@ public static class ScenarioExcelImport
         var sheet = FindSheet(workbook, VehicleSheetName);
 
         if (sheet is null)
-            return BuildVehiclesFromForm(form, errors);
+            return BuildVehiclesFromForm(form, errors) is { } generated
+                ? new VehicleReadResult(generated, null)
+                : null;
 
         var headerRow = sheet.FirstRowUsed();
 
         if (headerRow is null)
-            return BuildVehiclesFromForm(form, errors);
+            return BuildVehiclesFromForm(form, errors) is { } generatedFromEmpty
+                ? new VehicleReadResult(generatedFromEmpty, null)
+                : null;
 
         var columns = ReadHeader(headerRow);
-        var idColumn = FindColumn(columns, IdHeaders);
+        var idColumn = FindColumn(columns, VehicleIdHeaders);
         var capacityColumn = FindColumn(columns, CapacityHeaders);
         var longitudeColumn = FindColumn(columns, LongitudeHeaders);
         var latitudeColumn = FindColumn(columns, LatitudeHeaders);
+        var addressColumn = FindColumn(columns, AddressHeaders);
 
         if (idColumn is null || capacityColumn is null)
         {
-            Add(errors, "file", $"'{VehicleSheetName}' sayfasında 'id' ve 'kapasite' sütunları zorunludur.");
+            Add(errors, "file", $"'{VehicleSheetName}' sayfasında 'plaka' ve 'kapasite' sütunları zorunludur.");
             return null;
         }
 
+        var hasCoordinateColumns = longitudeColumn is not null && latitudeColumn is not null;
         var vehicles = new List<VehicleInput>();
+        var addressRows = new List<VehicleAddressRow>();
         var lastRow = sheet.LastRowUsed()?.RowNumber() ?? headerRow.RowNumber();
 
         for (var rowNumber = headerRow.RowNumber() + 1; rowNumber <= lastRow; rowNumber++)
@@ -279,23 +326,33 @@ public static class ScenarioExcelImport
                 continue;
             }
 
-            var start = form.Workplace;
-
-            if (longitudeColumn is not null
-                && latitudeColumn is not null
-                && TryReadDouble(row.Cell(longitudeColumn.Value), out var longitude)
-                && TryReadDouble(row.Cell(latitudeColumn.Value), out var latitude))
+            if (hasCoordinateColumns
+                && TryReadDouble(row.Cell(longitudeColumn!.Value), out var longitude)
+                && TryReadDouble(row.Cell(latitudeColumn!.Value), out var latitude))
             {
-                start = [longitude, latitude];
+                vehicles.Add(new VehicleInput(id, (int)capacity, [longitude, latitude]));
+                continue;
             }
 
-            vehicles.Add(new VehicleInput(id, (int)capacity, start));
+            var address = addressColumn is not null ? row.Cell(addressColumn.Value).GetString().Trim() : "";
+
+            if (address.Length > 0)
+            {
+                addressRows.Add(new VehicleAddressRow(rowNumber, id, (int)capacity, address));
+                continue;
+            }
+
+            vehicles.Add(new VehicleInput(id, (int)capacity, form.Workplace));
         }
 
-        if (vehicles.Count == 0)
-            return BuildVehiclesFromForm(form, errors);
+        if (vehicles.Count == 0 && addressRows.Count == 0)
+            return BuildVehiclesFromForm(form, errors) is { } fallback
+                ? new VehicleReadResult(fallback, null)
+                : null;
 
-        return vehicles;
+        return new VehicleReadResult(
+            vehicles.Count > 0 ? vehicles : null,
+            addressRows.Count > 0 ? addressRows : null);
     }
 
     private static List<VehicleInput>? BuildVehiclesFromForm(

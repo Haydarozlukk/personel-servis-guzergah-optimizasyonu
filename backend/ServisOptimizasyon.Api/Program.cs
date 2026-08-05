@@ -210,7 +210,9 @@ app.MapPost("/api/v1/scenarios/import", async (
     await using var stream = file.OpenReadStream();
     var import = ScenarioExcelImport.ParseAddresses(stream, importForm);
 
-    if (import.Persons is null || import.Vehicles is null || import.Errors.Count > 0)
+    if (import.Persons is null
+        || (import.Vehicles is null && import.VehicleAddressRows is null)
+        || import.Errors.Count > 0)
         return Results.ValidationProblem(import.Errors);
 
     var geocoded = await GeocodePersonsAsync(
@@ -224,6 +226,22 @@ app.MapPost("/api/v1/scenarios/import", async (
             ["persons"] = geocoded.Errors.ToArray(),
         });
 
+    var vehicles = import.Vehicles ?? [];
+    if (import.VehicleAddressRows is { Count: > 0 } vehicleAddressRows)
+    {
+        var geocodedVehicles = await GeocodeVehiclesAsync(
+            vehicleAddressRows,
+            geocodingService,
+            geocodingConfiguration.MaxConcurrency,
+            cancellationToken);
+        if (geocodedVehicles.Errors.Count > 0)
+            return Results.ValidationProblem(new Dictionary<string, string[]>
+            {
+                ["vehicles"] = geocodedVehicles.Errors.ToArray(),
+            });
+        vehicles = [.. vehicles, .. geocodedVehicles.Vehicles];
+    }
+
     var input = new ScenarioInput
     {
         Name = importForm.Name,
@@ -231,7 +249,7 @@ app.MapPost("/api/v1/scenarios/import", async (
         Workplace = importForm.Workplace,
         ArrivalDeadline = importForm.ArrivalDeadline,
         Persons = geocoded.Persons,
-        Vehicles = import.Vehicles,
+        Vehicles = vehicles,
     };
     var validationErrors = ScenarioValidator.Validate(input);
     if (validationErrors.Count > 0)
@@ -316,7 +334,7 @@ static async Task<(List<PersonInput> Persons, List<string> Errors)> GeocodePerso
             if (result is null)
                 errors[index] = $"{row.RowNumber}. satırdaki adres bulunamadı (id: {row.Id}).";
             else
-                persons[index] = new PersonInput(row.Id, [result.Longitude, result.Latitude]);
+                persons[index] = new PersonInput(row.Id, [result.Longitude, result.Latitude], row.Name);
         }
         catch (HttpRequestException exception)
         {
@@ -330,6 +348,42 @@ static async Task<(List<PersonInput> Persons, List<string> Errors)> GeocodePerso
 
     return (
         persons.Where(person => person is not null).Select(person => person!).ToList(),
+        errors.Where(error => error is not null).Select(error => error!).ToList());
+}
+
+static async Task<(List<VehicleInput> Vehicles, List<string> Errors)> GeocodeVehiclesAsync(
+    List<VehicleAddressRow> rows,
+    IGeocodingService geocodingService,
+    int maxConcurrency,
+    CancellationToken cancellationToken)
+{
+    var vehicles = new VehicleInput?[rows.Count];
+    var errors = new string?[rows.Count];
+    using var gate = new SemaphoreSlim(Math.Clamp(maxConcurrency, 1, 10));
+
+    await Task.WhenAll(rows.Select(async (row, index) =>
+    {
+        await gate.WaitAsync(cancellationToken);
+        try
+        {
+            var result = await geocodingService.GeocodeAsync(row.Address, cancellationToken);
+            if (result is null)
+                errors[index] = $"{row.RowNumber}. satırdaki araç adresi bulunamadı (plaka: {row.Id}).";
+            else
+                vehicles[index] = new VehicleInput(row.Id, row.Capacity, [result.Longitude, result.Latitude]);
+        }
+        catch (HttpRequestException exception)
+        {
+            errors[index] = $"{row.RowNumber}. satır araç geocoding hatası (plaka: {row.Id}): {exception.Message}";
+        }
+        finally
+        {
+            gate.Release();
+        }
+    }));
+
+    return (
+        vehicles.Where(vehicle => vehicle is not null).Select(vehicle => vehicle!).ToList(),
         errors.Where(error => error is not null).Select(error => error!).ToList());
 }
 

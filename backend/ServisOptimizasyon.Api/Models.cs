@@ -16,7 +16,7 @@ public sealed record ScenarioInput
     public int DeadlineSeconds => (int)ArrivalDeadline.ToTimeSpan().TotalSeconds;
 }
 
-public sealed record PersonInput(string Id, double[] Location);
+public sealed record PersonInput(string Id, double[] Location, string? Name = null);
 public sealed record VehicleInput(string Id, int Capacity, double[] Start);
 
 public sealed record ScenarioAccepted(Guid Id, string Status);

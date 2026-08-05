@@ -1,5 +1,17 @@
-import { Fragment } from 'react'
-import { Circle, CircleMarker, MapContainer, Pane, Polyline, Popup, TileLayer, Tooltip, useMapEvents } from 'react-leaflet'
+import { Fragment, useEffect } from 'react'
+import {
+  Circle,
+  CircleMarker,
+  MapContainer,
+  Pane,
+  Polyline,
+  Popup,
+  TileLayer,
+  Tooltip,
+  ZoomControl,
+  useMap,
+  useMapEvents,
+} from 'react-leaflet'
 import type { PersonPoint } from '../lib/person'
 import type { ScenarioStop, ScenarioVehicle } from '../lib/api'
 import type { RouteLike } from '../lib/routeLike'
@@ -28,6 +40,21 @@ function MapClickCatcher({ enabled, onPick }: { enabled: boolean; onPick: (posit
   return null
 }
 
+// The map fills the viewport via a fixed-position full-screen container, whose
+// size isn't known at Leaflet's own mount time — without this it renders at a
+// stale (often tiny) initial size until the window is manually resized.
+function MapResizeHandler() {
+  const map = useMap()
+  useEffect(() => {
+    const container = map.getContainer()
+    map.invalidateSize()
+    const observer = new ResizeObserver(() => map.invalidateSize())
+    observer.observe(container)
+    return () => observer.disconnect()
+  }, [map])
+  return null
+}
+
 export function ScenarioMap({
   routes,
   pendingPersons,
@@ -38,15 +65,18 @@ export function ScenarioMap({
   onPickLocation,
 }: ScenarioMapProps) {
   return (
-    <section className={`map-shell${pickMode ? ' picking' : ''}`} aria-label="Ankara personel haritası">
+    <div id="op-map" aria-label="Ankara personel haritası">
       <MapContainer
         center={[39.9334, 32.8597]}
         zoom={13}
         scrollWheelZoom
         preferCanvas
+        zoomControl={false}
         className={pickMode ? 'picking-cursor' : undefined}
       >
+        <MapResizeHandler />
         {onPickLocation && <MapClickCatcher enabled={pickMode} onPick={onPickLocation} />}
+        <ZoomControl position="bottomleft" />
         <TileLayer
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
@@ -120,6 +150,6 @@ export function ScenarioMap({
           )
         })}
       </MapContainer>
-    </section>
+    </div>
   )
 }
