@@ -27,13 +27,13 @@ public class ScenarioExcelImportTests
     private static void AddPersonSheet(XLWorkbook workbook)
     {
         var sheet = workbook.Worksheets.Add("personel");
-        sheet.Cell(1, 1).Value = "id";
+        sheet.Cell(1, 1).Value = "sicil numarası";
         sheet.Cell(1, 2).Value = "boylam";
         sheet.Cell(1, 3).Value = "enlem";
-        sheet.Cell(2, 1).Value = "person-001";
+        sheet.Cell(2, 1).Value = "10234";
         sheet.Cell(2, 2).Value = 32.8597;
         sheet.Cell(2, 3).Value = 39.9334;
-        sheet.Cell(3, 1).Value = "person-002";
+        sheet.Cell(3, 1).Value = "10235";
         sheet.Cell(3, 2).Value = 32.8642;
         sheet.Cell(3, 3).Value = 39.9261;
     }
@@ -50,7 +50,7 @@ public class ScenarioExcelImportTests
         Assert.Empty(result.Errors);
         Assert.NotNull(result.Input);
         Assert.Equal(2, result.Input.Persons.Count);
-        Assert.Equal("person-001", result.Input.Persons[0].Id);
+        Assert.Equal("10234", result.Input.Persons[0].Id);
         Assert.Equal(32.8597, result.Input.Persons[0].Location[0]);
         Assert.Equal("morning_inbound", result.Input.Direction);
     }
@@ -73,11 +73,11 @@ public class ScenarioExcelImportTests
         {
             AddPersonSheet(workbook);
             var sheet = workbook.Worksheets.Add("araclar");
-            sheet.Cell(1, 1).Value = "id";
+            sheet.Cell(1, 1).Value = "plaka";
             sheet.Cell(1, 2).Value = "kapasite";
             sheet.Cell(1, 3).Value = "boylam";
             sheet.Cell(1, 4).Value = "enlem";
-            sheet.Cell(2, 1).Value = "servis-a";
+            sheet.Cell(2, 1).Value = "06 ABC 123";
             sheet.Cell(2, 2).Value = 20;
             sheet.Cell(2, 3).Value = 32.8100;
             sheet.Cell(2, 4).Value = 39.9700;
@@ -87,7 +87,7 @@ public class ScenarioExcelImportTests
 
         Assert.Empty(result.Errors);
         var vehicle = Assert.Single(result.Input!.Vehicles);
-        Assert.Equal("servis-a", vehicle.Id);
+        Assert.Equal("06 ABC 123", vehicle.Id);
         Assert.Equal(20, vehicle.Capacity);
         Assert.Equal(32.8100, vehicle.Start[0]);
     }
@@ -127,10 +127,10 @@ public class ScenarioExcelImportTests
         using var stream = Workbook(workbook =>
         {
             var sheet = workbook.Worksheets.Add("personel");
-            sheet.Cell(1, 1).Value = "id";
+            sheet.Cell(1, 1).Value = "sicil numarası";
             sheet.Cell(1, 2).Value = "boylam";
             sheet.Cell(1, 3).Value = "enlem";
-            sheet.Cell(2, 1).Value = "person-001";
+            sheet.Cell(2, 1).Value = "10234";
             sheet.Cell(2, 2).Value = "32,8597";
             sheet.Cell(2, 3).Value = "39,9334";
         });
@@ -150,10 +150,10 @@ public class ScenarioExcelImportTests
         using var stream = Workbook(workbook =>
         {
             var sheet = workbook.Worksheets.Add("personel");
-            sheet.Cell(1, 1).Value = "id";
+            sheet.Cell(1, 1).Value = "sicil numarası";
             sheet.Cell(1, 2).Value = "boylam";
             sheet.Cell(1, 3).Value = "enlem";
-            sheet.Cell(2, 1).Value = "person-001";
+            sheet.Cell(2, 1).Value = "10234";
             sheet.Cell(2, 2).Value = 999.0;
             sheet.Cell(2, 3).Value = 39.9334;
         });
@@ -175,9 +175,15 @@ public class ScenarioExcelImportTests
 
         Assert.Empty(result.Errors);
         var person = Assert.Single(result.Persons!);
-        Assert.Equal("person-001", person.Id);
+        Assert.Equal("10234", person.Id);
+        Assert.Equal("Ahmet Yılmaz", person.Name);
         Assert.Contains("Ankara", person.Address);
-        Assert.Single(result.Vehicles!);
+
+        // Şablonda araçlar boylam/enlem yerine adresle geldiği için doğrudan
+        // çözülmez; geocoding bekleyen satır olarak döner (bkz. Program.cs).
+        var vehicleRow = Assert.Single(result.VehicleAddressRows!);
+        Assert.Equal("06 ABC 123", vehicleRow.Id);
+        Assert.Contains("Ankara", vehicleRow.Address);
     }
 
     [Fact]
@@ -186,11 +192,13 @@ public class ScenarioExcelImportTests
         using var stream = Workbook(workbook =>
         {
             var sheet = workbook.Worksheets.Add("personel");
-            sheet.Cell(1, 1).Value = "id";
-            sheet.Cell(1, 2).Value = "adres";
-            sheet.Cell(2, 1).Value = "person-001";
-            sheet.Cell(2, 2).Value = "Kızılay, Çankaya, Ankara";
-            sheet.Cell(3, 1).Value = "person-002";
+            sheet.Cell(1, 1).Value = "sicil numarası";
+            sheet.Cell(1, 2).Value = "ad soyad";
+            sheet.Cell(1, 3).Value = "adres";
+            sheet.Cell(2, 1).Value = "10234";
+            sheet.Cell(2, 2).Value = "Ahmet Yılmaz";
+            sheet.Cell(2, 3).Value = "Kızılay, Çankaya, Ankara";
+            sheet.Cell(3, 1).Value = "10235";
         });
 
         var result = ScenarioExcelImport.ParseAddresses(

@@ -412,10 +412,14 @@ export interface components {
          */
         Coordinate: number[];
         Person: {
+            /** @description Excel içe aktarımında personelin sicil numarası. */
             id: string;
+            /** @description Excel'deki 'ad soyad' sütunu; yalnızca içe aktarımda doldurulur. */
+            name?: string;
             location: components["schemas"]["Coordinate"];
         };
         Vehicle: {
+            /** @description Excel içe aktarımında aracın plakası. */
             id: string;
             capacity: number;
             start: components["schemas"]["Coordinate"];

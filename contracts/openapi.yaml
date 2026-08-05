@@ -202,13 +202,20 @@ components:
       type: object
       required: [id, location]
       properties:
-        id: { type: string }
+        id:
+          type: string
+          description: Excel içe aktarımında personelin sicil numarası.
+        name:
+          type: string
+          description: Excel'deki 'ad soyad' sütunu; yalnızca içe aktarımda doldurulur.
         location: { $ref: '#/components/schemas/Coordinate' }
     Vehicle:
       type: object
       required: [id, capacity, start]
       properties:
-        id: { type: string }
+        id:
+          type: string
+          description: Excel içe aktarımında aracın plakası.
         capacity: { type: integer, minimum: 1 }
         start: { $ref: '#/components/schemas/Coordinate' }
     ScenarioInput:

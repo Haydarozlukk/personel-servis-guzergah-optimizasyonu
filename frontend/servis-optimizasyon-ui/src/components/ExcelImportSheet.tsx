@@ -1,13 +1,14 @@
 import { useState } from 'react'
 import { downloadImportTemplate, type ExcelImportForm as ExcelImportFormData } from '../lib/api'
 
-type ExcelImportFormProps = {
+type ExcelImportSheetProps = {
   onSubmit: (form: ExcelImportFormData) => void
   disabled: boolean
   isBusy: boolean
+  errorMessage: string
 }
 
-export function ExcelImportForm({ onSubmit, disabled, isBusy }: ExcelImportFormProps) {
+export function ExcelImportSheet({ onSubmit, disabled, isBusy, errorMessage }: ExcelImportSheetProps) {
   const [file, setFile] = useState<File | null>(null)
   const [name, setName] = useState('Excel senaryosu')
   const [arrivalDeadline, setArrivalDeadline] = useState('08:30:00')
@@ -40,7 +41,7 @@ export function ExcelImportForm({ onSubmit, disabled, isBusy }: ExcelImportFormP
   }
 
   return (
-    <section className="controls excel-import" aria-label="Excel'den senaryo yükle">
+    <div className="op-sheet-fields">
       <label>
         <span>Senaryo adı</span>
         <input type="text" value={name} disabled={isBusy} onChange={(event) => setName(event.target.value)} />
@@ -55,7 +56,7 @@ export function ExcelImportForm({ onSubmit, disabled, isBusy }: ExcelImportFormP
           onChange={(event) => setArrivalDeadline(event.target.value)}
         />
       </label>
-      <label className="file-field">
+      <label className="op-field-wide">
         <span>İşyeri adresi</span>
         <input
           type="text"
@@ -85,7 +86,7 @@ export function ExcelImportForm({ onSubmit, disabled, isBusy }: ExcelImportFormP
           onChange={(event) => setVehicleCapacity(event.target.value)}
         />
       </label>
-      <label className="file-field">
+      <label className="op-field-wide">
         <span>Excel dosyası <small>.xlsx</small></span>
         <input
           type="file"
@@ -94,17 +95,16 @@ export function ExcelImportForm({ onSubmit, disabled, isBusy }: ExcelImportFormP
           onChange={(event) => setFile(event.target.files?.[0] ?? null)}
         />
       </label>
-      <div className="excel-actions">
-        <button className="primary-action" type="button" disabled={!canSubmit} onClick={handleSubmit}>
-          {isBusy && <span className="spinner" aria-hidden="true" />}
-          {isBusy ? 'Planlanıyor…' : "Excel'i yükle ve optimize et"}
-          {!isBusy && <span className="button-arrow" aria-hidden="true">→</span>}
+      <div className="op-sheet-actions">
+        <button type="button" className="op-btn op-btn-primary" disabled={!canSubmit} onClick={handleSubmit}>
+          {isBusy && <span className="op-spinner" aria-hidden="true" />}
+          {isBusy ? 'Planlanıyor…' : 'Yükle ve optimize et →'}
         </button>
-        <button type="button" className="secondary" disabled={isBusy} onClick={() => void handleTemplateDownload()}>
+        <button type="button" className="op-btn op-btn-secondary" disabled={isBusy} onClick={() => void handleTemplateDownload()}>
           Şablonu indir
         </button>
       </div>
-      {templateError && <p className="status-error">{templateError}</p>}
-    </section>
+      {(errorMessage || templateError) && <p className="op-error-text">{errorMessage || templateError}</p>}
+    </div>
   )
 }
