@@ -12,16 +12,27 @@ public sealed record ScenarioInput
     public required TimeOnly ArrivalDeadline { get; init; }
     public required List<PersonInput> Persons { get; init; }
     public required List<VehicleInput> Vehicles { get; init; }
+    public List<string> ImportWarnings { get; init; } = [];
 
     public int DeadlineSeconds => (int)ArrivalDeadline.ToTimeSpan().TotalSeconds;
 }
 
 public sealed record PersonInput(string Id, double[] Location, string? Name = null);
-public sealed record VehicleInput(string Id, int Capacity, double[] Start);
+public sealed record VehicleInput(
+    string Id,
+    int Capacity,
+    double[]? Start = null,
+    string? Plate = null,
+    int ReservedSeats = 0)
+{
+    public int EffectiveCapacity => Math.Max(0, Capacity - ReservedSeats);
+}
 
 public sealed record ScenarioAccepted(Guid Id, string Status);
 
-public sealed record ReoptimizeRequest(List<VehicleInput>? Vehicles);
+public sealed record FullReoptimizeRequest(string SnapshotName, ScenarioResult Plan);
+public sealed record NearbyServiceResult(string VehicleId, double DistanceMeters, string? NearestStopId, int Load, int EffectiveCapacity);
+public sealed record NearbyServicesResponse(string Address, double[] Location, List<NearbyServiceResult> Services);
 
 // ---------------------------------------------------------------------------
 // Optimizasyon servisi sözleşmesi (Kerim)
@@ -88,10 +99,11 @@ public sealed record VroomVehicle(
     int Id,
     string Description,
     string Profile,
-    double[] Start,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] double[]? Start,
     double[] End,
     int[] Capacity,
-    [property: JsonPropertyName("time_window")] int[] TimeWindow);
+    [property: JsonPropertyName("time_window")] int[] TimeWindow,
+    [property: JsonPropertyName("max_tasks")] int MaxTasks);
 
 public sealed record VroomOptions(bool G);
 
@@ -186,6 +198,7 @@ public sealed record ScenarioResult(
     string Status,
     int DeadlineSeconds,
     double[] Workplace,
+    List<PersonInput> Persons,
     List<VehicleInput> Vehicles,
     List<StopResult> Stops,
     List<RouteResult> Routes,

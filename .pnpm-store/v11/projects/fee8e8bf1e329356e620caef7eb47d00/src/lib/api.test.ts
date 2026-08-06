@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { addPersonsAndReoptimize, waitForScenarioResult, type ScenarioResult } from './api'
+import { waitForScenarioResult, type ScenarioResult } from './api'
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -19,6 +19,7 @@ function baseResult(overrides: Partial<ScenarioResult> = {}): ScenarioResult {
     status: 'completed',
     deadlineSeconds: 30600,
     workplace: [32.8597, 39.9334],
+    persons: [],
     vehicles: [],
     stops: [],
     routes: [],
@@ -26,54 +27,6 @@ function baseResult(overrides: Partial<ScenarioResult> = {}): ScenarioResult {
     ...overrides,
   }
 }
-
-describe('addPersonsAndReoptimize', () => {
-  beforeEach(() => {
-    vi.stubGlobal('fetch', vi.fn())
-  })
-
-  afterEach(() => {
-    vi.unstubAllGlobals()
-  })
-
-  it('posts the new persons to the scenario and returns the parsed body', async () => {
-    const fetchMock = vi.mocked(fetch)
-    fetchMock.mockResolvedValueOnce(jsonResponse({ id: 'scenario-1', status: 'queued' }, 202))
-
-    const persons: Parameters<typeof addPersonsAndReoptimize>[1] = [
-      { firstName: 'Ada', lastName: 'Lovelace', location: [32.86, 39.93] },
-    ]
-    const result = await addPersonsAndReoptimize('scenario-1', persons)
-
-    expect(result).toEqual({ id: 'scenario-1', status: 'queued' })
-    expect(fetchMock).toHaveBeenCalledTimes(1)
-    const [url, options] = fetchMock.mock.calls[0]
-    expect(url).toBe('http://localhost:8080/api/v1/scenarios/scenario-1/persons')
-    expect(options).toMatchObject({
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-    })
-    expect(JSON.parse(options!.body as string)).toEqual({ persons })
-  })
-
-  it('throws a message built from the validation errors on a 400 response', async () => {
-    const fetchMock = vi.mocked(fetch)
-    fetchMock.mockResolvedValueOnce(
-      jsonResponse({ errors: { persons: ['En az bir personel girilmelidir.'] } }, 400),
-    )
-
-    await expect(addPersonsAndReoptimize('scenario-1', [])).rejects.toThrow(
-      'En az bir personel girilmelidir.',
-    )
-  })
-
-  it('falls back to a status-based message when the error response has no JSON body', async () => {
-    const fetchMock = vi.mocked(fetch)
-    fetchMock.mockResolvedValueOnce(new Response('', { status: 500 }))
-
-    await expect(addPersonsAndReoptimize('scenario-1', [])).rejects.toThrow('İstek başarısız oldu (500).')
-  })
-})
 
 describe('waitForScenarioResult', () => {
   beforeEach(() => {
@@ -94,7 +47,7 @@ describe('waitForScenarioResult', () => {
 
     expect(result.status).toBe('completed')
     expect(fetchMock).toHaveBeenCalledTimes(1)
-    expect(fetchMock).toHaveBeenCalledWith('http://localhost:8080/api/v1/scenarios/scenario-1')
+    expect(fetchMock).toHaveBeenCalledWith('http://localhost:8080/api/v1/scenarios/scenario-1', { credentials: 'include' })
   })
 
   it('polls through queued -> running -> completed, reporting each intermediate state', async () => {

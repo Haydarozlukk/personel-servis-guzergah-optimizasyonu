@@ -1,8 +1,9 @@
-import { Fragment, useEffect } from 'react'
+import { Fragment, useEffect, useMemo, useRef } from 'react'
+import L from 'leaflet'
 import {
   Circle,
-  CircleMarker,
   MapContainer,
+  Marker,
   Pane,
   Polyline,
   Popup,
@@ -17,6 +18,7 @@ import type { ScenarioStop, ScenarioVehicle } from '../lib/api'
 import type { RouteLike } from '../lib/routeLike'
 import { decodePolyline } from '../lib/polyline'
 import { routeColors } from '../lib/colors'
+import { getStopDisplayName } from '../lib/stopName'
 
 type ScenarioMapProps = {
   routes: RouteLike[]
@@ -25,10 +27,51 @@ type ScenarioMapProps = {
   workplace: number[] | null
   vehicles: ScenarioVehicle[]
   pickMode?: boolean
+  focusedLocation?: number[] | null
   onPickLocation?: (position: [number, number]) => void
+  onMoveStopLocation?: (stopId: string, location: [number, number]) => void
+  onMoveVehicleStart?: (vehicleId: string, location: [number, number]) => void
 }
 
 const WALKING_LIMIT_METERS = 500
+
+const createStopIcon = (color = '#ffb703', label = '') =>
+  L.divIcon({
+    className: 'op-stop-marker-icon',
+    html: `<div style="
+      width: 22px;
+      height: 22px;
+      border-radius: 50%;
+      background: ${color};
+      border: 3px solid #cc5d00;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.35);
+      cursor: grab;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 11px;
+      font-weight: 700;
+      color: #000;
+    ">${label}</div>`,
+    iconSize: [22, 22],
+    iconAnchor: [11, 11],
+  })
+
+const createVehicleStartIcon = (color = '#2563eb') =>
+  L.divIcon({
+    className: 'op-vehicle-start-icon',
+    html: `<div style="
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      background: ${color};
+      border: 3px solid #ffffff;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+      cursor: grab;
+    "></div>`,
+    iconSize: [24, 24],
+    iconAnchor: [12, 12],
+  })
 
 function MapClickCatcher({ enabled, onPick }: { enabled: boolean; onPick: (position: [number, number]) => void }) {
   useMapEvents({
@@ -40,9 +83,6 @@ function MapClickCatcher({ enabled, onPick }: { enabled: boolean; onPick: (posit
   return null
 }
 
-// The map fills the viewport via a fixed-position full-screen container, whose
-// size isn't known at Leaflet's own mount time — without this it renders at a
-// stale (often tiny) initial size until the window is manually resized.
 function MapResizeHandler() {
   const map = useMap()
   useEffect(() => {
@@ -55,6 +95,78 @@ function MapResizeHandler() {
   return null
 }
 
+function routePositions(
+  route: RouteLike,
+  stopById: Map<string, ScenarioStop>,
+  workplace: number[] | null,
+) {
+  if (route.geometry) {
+    try {
+      return decodePolyline(route.geometry)
+    } catch {
+      // Eski veya yarım kalmış bir geometri haritanın tamamını bozmasın.
+    }
+  }
+
+  return (route.stopIds ?? [])
+    .map((id) => stopById.get(id))
+    .filter((stop): stop is ScenarioStop => !!stop)
+    .map((stop) => [stop.location[1], stop.location[0]] as [number, number])
+    .concat(workplace ? [[workplace[1], workplace[0]]] : [])
+}
+
+function MapBoundsHandler({ points }: { points: [number, number][] }) {
+  const map = useMap()
+  const hasInitialized = useRef(false)
+
+  useEffect(() => {
+    if (hasInitialized.current) return
+    const validPoints = points.filter(([latitude, longitude]) =>
+      Number.isFinite(latitude) && Number.isFinite(longitude))
+
+    if (validPoints.length === 1) {
+      map.setView(validPoints[0], 14)
+      hasInitialized.current = true
+    } else if (validPoints.length > 1) {
+      map.fitBounds(validPoints, {
+        animate: false,
+        maxZoom: 14,
+        padding: [56, 56],
+      })
+      hasInitialized.current = true
+    }
+  }, [map, points])
+
+  return null
+}
+
+export function toLeafletLatLng(location: number[]): [number, number] | null {
+  if (!location || location.length < 2) return null
+  const [a, b] = location
+  if (!Number.isFinite(a) || !Number.isFinite(b)) return null
+
+  // In Turkey: Lat is ~35..43 (e.g. 39.9), Lng is ~25..45 (e.g. 32.8)
+  if (a >= 35 && a <= 43 && b >= 25 && b <= 45) {
+    return [a, b]
+  }
+  if (b >= 35 && b <= 43 && a >= 25 && a <= 45) {
+    return [b, a]
+  }
+  return [a, b]
+}
+
+function MapFlyToHandler({ location }: { location?: number[] | null }) {
+  const map = useMap()
+  useEffect(() => {
+    if (!location) return
+    const latLng = toLeafletLatLng(location)
+    if (latLng) {
+      map.flyTo(latLng, 15, { animate: true, duration: 1.2 })
+    }
+  }, [map, location])
+  return null
+}
+
 export function ScenarioMap({
   routes,
   pendingPersons,
@@ -62,8 +174,33 @@ export function ScenarioMap({
   workplace,
   vehicles,
   pickMode = false,
+  focusedLocation,
   onPickLocation,
+  onMoveStopLocation,
+  onMoveVehicleStart,
 }: ScenarioMapProps) {
+  const stopById = useMemo(
+    () => new Map((realStops ?? []).map((stop) => [stop.id, stop])),
+    [realStops],
+  )
+  const positionsByVehicle = useMemo(
+    () => new Map(routes.map((route) => [route.vehicleId, routePositions(route, stopById, workplace)])),
+    [routes, stopById, workplace],
+  )
+  const mapBoundsPoints = useMemo(() => {
+    const routePoints = [...positionsByVehicle.values()].flat()
+    if (routePoints.length > 0) return routePoints
+
+    return [
+      ...(realStops ?? []).map((stop) => [stop.location[1], stop.location[0]] as [number, number]),
+      ...pendingPersons.map((person) => person.position),
+      ...vehicles
+        .filter((vehicle) => vehicle.start)
+        .map((vehicle) => [vehicle.start![1], vehicle.start![0]] as [number, number]),
+      ...(workplace ? [[workplace[1], workplace[0]] as [number, number]] : []),
+    ]
+  }, [pendingPersons, positionsByVehicle, realStops, vehicles, workplace])
+
   return (
     <div id="op-map" aria-label="Ankara personel haritası">
       <MapContainer
@@ -75,56 +212,106 @@ export function ScenarioMap({
         className={pickMode ? 'picking-cursor' : undefined}
       >
         <MapResizeHandler />
+        <MapBoundsHandler points={mapBoundsPoints} />
+        <MapFlyToHandler location={focusedLocation} />
         {onPickLocation && <MapClickCatcher enabled={pickMode} onPick={onPickLocation} />}
         <ZoomControl position="bottomleft" />
         <TileLayer
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
         />
-        {routes.map((route, index) => (
-          <Polyline
-            key={route.vehicleId}
-            positions={decodePolyline(route.geometry)}
-            pathOptions={{ color: routeColors[index % routeColors.length], weight: 4, opacity: 0.85 }}
-          >
-            <Tooltip sticky>
-              {route.vehicleId} · {(route.distanceMeters / 1000).toFixed(1)} km ·{' '}
-              {Math.round(route.durationSeconds / 60)} dk · yük {route.load}
-            </Tooltip>
-          </Polyline>
-        ))}
+        {routes.map((route, index) => {
+          const positions = positionsByVehicle.get(route.vehicleId) ?? []
+          const isSelected = routes.length === 1
+
+          return (
+            positions.length > 1 && (
+              <Polyline
+                key={route.vehicleId}
+                positions={positions}
+                pathOptions={{
+                  color: routeColors[index % routeColors.length],
+                  weight: isSelected ? 7 : 5,
+                  opacity: 0.85,
+                  dashArray: route.geometry ? undefined : '8 8',
+                }}
+              >
+                <Tooltip sticky>
+                  {route.vehicleId} ·{' '}
+                  {route.geometry
+                    ? `${(route.distanceMeters / 1000).toFixed(1)} km · ${Math.round(route.durationSeconds / 60)} dk`
+                    : 'manuel durak sırası'}
+                </Tooltip>
+              </Polyline>
+            )
+          )
+        })}
         {workplace && (
-          <CircleMarker
-            center={[workplace[1], workplace[0]]}
-            radius={12}
-            pathOptions={{ color: '#064e3b', fillColor: '#22c55e', fillOpacity: 1, weight: 3 }}
+          <Marker
+            position={[workplace[1], workplace[0]]}
+            icon={L.divIcon({
+              className: 'op-workplace-icon',
+              html: `<div style="
+                width: 26px;
+                height: 26px;
+                border-radius: 50%;
+                background: #22c55e;
+                border: 3px solid #064e3b;
+                box-shadow: 0 2px 6px rgba(0,0,0,0.4);
+              "></div>`,
+              iconSize: [26, 26],
+              iconAnchor: [13, 13],
+            })}
           >
-            <Tooltip permanent direction="top" offset={[0, -10]}>İşyeri</Tooltip>
-            <Popup>İşyeri · servis rotalarının varış noktası</Popup>
-          </CircleMarker>
+            <Tooltip permanent direction="top" offset={[0, -12]}>
+              Varış
+            </Tooltip>
+            <Popup>Kullanıcının belirlediği varış noktası</Popup>
+          </Marker>
         )}
         <Pane name="vehicle-starts" style={{ zIndex: 650 }}>
-        {vehicles.map((vehicle, index) => (
-          <CircleMarker
-            key={`vehicle-start-${vehicle.id}`}
-            center={[vehicle.start[1], vehicle.start[0]]}
-            radius={11}
-            pathOptions={{
-              color: '#ffffff',
-              fillColor: routeColors[index % routeColors.length],
-              fillOpacity: 1,
-              weight: 4,
-            }}
-          >
-            <Tooltip>{vehicle.id} çıkış noktası</Tooltip>
-            <Popup>{vehicle.id} · çıkış noktası · kapasite {vehicle.capacity}</Popup>
-          </CircleMarker>
-        ))}
+          {vehicles
+            .filter((vehicle) => vehicle.start)
+            .map((vehicle, index) => (
+              <Marker
+                key={`vehicle-start-${vehicle.id}`}
+                position={[vehicle.start![1], vehicle.start![0]]}
+                draggable={!!onMoveVehicleStart}
+                icon={createVehicleStartIcon(routeColors[index % routeColors.length])}
+                eventHandlers={{
+                  dragend(e) {
+                    const latlng = e.target.getLatLng()
+                    onMoveVehicleStart?.(vehicle.id, [latlng.lng, latlng.lat])
+                  },
+                }}
+              >
+                <Tooltip>{vehicle.id} çıkış noktası (Sürükleyerek taşıyabilirsiniz)</Tooltip>
+                <Popup>
+                  {vehicle.id} · çıkış noktası · kapasite {vehicle.capacity}
+                </Popup>
+              </Marker>
+            ))}
         </Pane>
         {pendingPersons.map((person) => (
-          <CircleMarker key={person.id} center={person.position} radius={7} pathOptions={{ color: '#2563eb' }}>
+          <Marker
+            key={person.id}
+            position={person.position}
+            icon={L.divIcon({
+              className: 'op-pending-person-icon',
+              html: `<div style="
+                width: 14px;
+                height: 14px;
+                border-radius: 50%;
+                background: #2563eb;
+                border: 2px solid #ffffff;
+                box-shadow: 0 1px 4px rgba(0,0,0,0.3);
+              "></div>`,
+              iconSize: [14, 14],
+              iconAnchor: [7, 7],
+            })}
+          >
             <Popup>{person.name} · henüz optimize edilmedi</Popup>
-          </CircleMarker>
+          </Marker>
         ))}
         {realStops?.map((stop) => {
           const center: [number, number] = [stop.location[1], stop.location[0]]
@@ -135,17 +322,24 @@ export function ScenarioMap({
                 radius={WALKING_LIMIT_METERS}
                 pathOptions={{ color: '#cc5d00', fillOpacity: 0.04, weight: 1 }}
               />
-              <CircleMarker
-                center={center}
-                radius={10}
-                pathOptions={{ color: '#cc5d00', fillColor: '#ffb703', fillOpacity: 0.9, weight: 2 }}
+              <Marker
+                position={center}
+                draggable={!!onMoveStopLocation}
+                icon={createStopIcon('#ffb703')}
+                eventHandlers={{
+                  dragend(e) {
+                    const latlng = e.target.getLatLng()
+                    onMoveStopLocation?.(stop.id, [latlng.lng, latlng.lat])
+                  },
+                }}
               >
                 <Popup>
-                  {stop.id} · {stop.assignedPersonIds.length} personel · ort. yürüme{' '}
-                  {Math.round(stop.averageWalkingDistanceMeters)} m · kalite{' '}
-                  {Math.round(stop.qualityScore * 100)}%
+                  <strong>{getStopDisplayName(stop)}</strong> (Haritada sürükleyerek sokağını değiştirebilirsiniz)
+                  <br />
+                  {stop.assignedPersonIds.length} personel · ort. yürüme{' '}
+                  {Math.round(stop.averageWalkingDistanceMeters)} m
                 </Popup>
-              </CircleMarker>
+              </Marker>
             </Fragment>
           )
         })}

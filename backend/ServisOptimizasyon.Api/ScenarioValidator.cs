@@ -72,8 +72,14 @@ public static class ScenarioValidator
         if (vehicles.Any(vehicle => vehicle.Capacity < 1))
             errors.Add("vehicles", "Araç kapasitesi en az bir olmalıdır.");
 
-        if (vehicles.Any(vehicle => !IsCoordinate(vehicle.Start)))
-            errors.Add("vehicles", "Araç başlangıç koordinatları [boylam, enlem] sırasında ve geçerli aralıkta olmalıdır.");
+        if (vehicles.Any(vehicle => vehicle.Capacity is not (18 or 30 or 46)))
+            errors.Add("vehicles", "Araç kapasitesi yalnızca 18, 30 veya 46 olabilir.");
+
+        if (vehicles.Any(vehicle => vehicle.ReservedSeats < 0 || vehicle.ReservedSeats >= vehicle.Capacity))
+            errors.Add("vehicles", "Rezerv boş koltuk sayısı sıfırdan küçük ve araç kapasitesinden büyük/eşit olamaz.");
+
+        if (vehicles.Any(vehicle => vehicle.Start is not null && !IsCoordinate(vehicle.Start)))
+            errors.Add("vehicles", "Verilen araç başlangıç koordinatları [boylam, enlem] sırasında ve geçerli aralıkta olmalıdır.");
     }
 
     public static bool IsCoordinate(double[]? coordinate) =>

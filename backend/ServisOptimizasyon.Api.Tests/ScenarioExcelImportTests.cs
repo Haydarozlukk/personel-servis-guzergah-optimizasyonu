@@ -45,7 +45,7 @@ public class ScenarioExcelImportTests
 
         var result = ScenarioExcelImport.Parse(
             stream,
-            DefaultForm with { VehicleCount = 2, VehicleCapacity = 16 });
+            DefaultForm with { VehicleCount = 2, VehicleCapacity = 18 });
 
         Assert.Empty(result.Errors);
         Assert.NotNull(result.Input);
@@ -78,7 +78,7 @@ public class ScenarioExcelImportTests
             sheet.Cell(1, 3).Value = "boylam";
             sheet.Cell(1, 4).Value = "enlem";
             sheet.Cell(2, 1).Value = "06 ABC 123";
-            sheet.Cell(2, 2).Value = 20;
+            sheet.Cell(2, 2).Value = 30;
             sheet.Cell(2, 3).Value = 32.8100;
             sheet.Cell(2, 4).Value = 39.9700;
         });
@@ -88,8 +88,8 @@ public class ScenarioExcelImportTests
         Assert.Empty(result.Errors);
         var vehicle = Assert.Single(result.Input!.Vehicles);
         Assert.Equal("06 ABC 123", vehicle.Id);
-        Assert.Equal(20, vehicle.Capacity);
-        Assert.Equal(32.8100, vehicle.Start[0]);
+        Assert.Equal(30, vehicle.Capacity);
+        Assert.Equal(32.8100, vehicle.Start![0]);
     }
 
     [Fact]
@@ -99,14 +99,14 @@ public class ScenarioExcelImportTests
 
         var result = ScenarioExcelImport.Parse(
             stream,
-            DefaultForm with { VehicleCount = 3, VehicleCapacity = 12 });
+            DefaultForm with { VehicleCount = 3, VehicleCapacity = 18 });
 
         Assert.Empty(result.Errors);
         Assert.Equal(3, result.Input!.Vehicles.Count);
         Assert.Equal("vehicle-001", result.Input.Vehicles[0].Id);
-        Assert.Equal(12, result.Input.Vehicles[0].Capacity);
+        Assert.Equal(18, result.Input.Vehicles[0].Capacity);
         // Araç sayfası yoksa araçlar işyerinden başlar.
-        Assert.Equal(32.8541, result.Input.Vehicles[0].Start[0]);
+        Assert.Equal(32.8541, result.Input.Vehicles[0].Start![0]);
     }
 
     [Fact]
@@ -137,7 +137,7 @@ public class ScenarioExcelImportTests
 
         var result = ScenarioExcelImport.Parse(
             stream,
-            DefaultForm with { VehicleCount = 1, VehicleCapacity = 16 });
+            DefaultForm with { VehicleCount = 1, VehicleCapacity = 18 });
 
         Assert.Empty(result.Errors);
         Assert.Equal(32.8597, result.Input!.Persons[0].Location[0], 4);
@@ -160,7 +160,7 @@ public class ScenarioExcelImportTests
 
         var result = ScenarioExcelImport.Parse(
             stream,
-            DefaultForm with { VehicleCount = 1, VehicleCapacity = 16 });
+            DefaultForm with { VehicleCount = 1, VehicleCapacity = 18 });
 
         Assert.Null(result.Input);
         Assert.Contains("persons", result.Errors.Keys);
@@ -179,11 +179,12 @@ public class ScenarioExcelImportTests
         Assert.Equal("Ahmet Yılmaz", person.Name);
         Assert.Contains("Ankara", person.Address);
 
-        // Şablonda araçlar boylam/enlem yerine adresle geldiği için doğrudan
-        // çözülmez; geocoding bekleyen satır olarak döner (bkz. Program.cs).
-        var vehicleRow = Assert.Single(result.VehicleAddressRows!);
-        Assert.Equal("06 ABC 123", vehicleRow.Id);
-        Assert.Contains("Ankara", vehicleRow.Address);
+        Assert.Empty(result.Vehicles!);
+        Assert.Null(result.VehicleAddressRows);
+
+        stream.Position = 0;
+        var settings = ScenarioExcelImport.ReadSettings(stream);
+        Assert.Equal(new TimeOnly(8, 30), settings.ArrivalDeadline);
     }
 
     [Fact]
@@ -203,7 +204,7 @@ public class ScenarioExcelImportTests
 
         var result = ScenarioExcelImport.ParseAddresses(
             stream,
-            DefaultForm with { VehicleCount = 1, VehicleCapacity = 16 });
+            DefaultForm with { VehicleCount = 1, VehicleCapacity = 18 });
 
         Assert.Contains(result.Errors["persons"], message => message.Contains("3. satır"));
         var person = Assert.Single(result.Persons!);

@@ -28,9 +28,10 @@ services:
       Services__OptimizationUrl: ${OPTIMIZATION_URL}
       Services__VroomUrl: ${VROOM_URL}
       Geocoding__BaseUrl: ${GEOCODING_URL:-http://nominatim:8080}
-      Geocoding__PublicBaseUrl: https://nominatim.openstreetmap.org
-      Geocoding__PublicViewbox: 32.60,40.05,33.05,39.75
       Cors__AllowedOrigins: ${ALLOWED_ORIGINS:-http://localhost:5173}
+      BootstrapAdmin__Email: ${BOOTSTRAP_ADMIN_EMAIL:-admin@servis.com}
+      BootstrapAdmin__Password: ${BOOTSTRAP_ADMIN_PASSWORD:-Admin123456!}
+      BootstrapAdmin__DisplayName: ${BOOTSTRAP_ADMIN_DISPLAY_NAME:-Sistem Yöneticisi}
     ports:
       - "8080:8080"
     healthcheck:

@@ -11,6 +11,12 @@ public sealed class OptimizationOptions
 
     /// <summary>Durakta kişi başına biniş süresi (saniye).</summary>
     public int BoardingSecondsPerPerson { get; set; } = 10;
+
+    /// <summary>
+    /// Araç başına ortalama durak sayısına uygulanacak üst sınır çarpanı.
+    /// 1.25, rotaları dengelerken kapasite ve zaman kısıtları için pay bırakır.
+    /// </summary>
+    public double MaxRouteStopFactor { get; set; } = 1.25;
 }
 
 public sealed class OptimizationClient(HttpClient client)
@@ -69,6 +75,44 @@ public sealed class VroomClient(HttpClient client)
         value.Length <= 500 ? value : value[..500];
 }
 
+public sealed record OsrmRouteResponse(
+    string Code,
+    List<OsrmRouteItem>? Routes);
+
+public sealed record OsrmRouteItem(
+    double Distance,
+    double Duration,
+    string Geometry);
+
+public sealed class OsrmCarClient(HttpClient client)
+{
+    public async Task<(string Geometry, int DistanceMeters, int DurationSeconds)?> RecalculateRouteAsync(
+        List<double[]> waypoints,
+        CancellationToken cancellationToken)
+    {
+        if (waypoints.Count < 2) return null;
+
+        var coords = string.Join(";", waypoints.Select(w => $"{w[0].ToString(System.Globalization.CultureInfo.InvariantCulture)},{w[1].ToString(System.Globalization.CultureInfo.InvariantCulture)}"));
+        var url = $"/route/v1/driving/{coords}?overview=full&geometries=polyline";
+
+        try
+        {
+            using var response = await client.GetAsync(url, cancellationToken);
+            if (!response.IsSuccessStatusCode) return null;
+
+            var result = await response.Content.ReadFromJsonAsync<OsrmRouteResponse>(cancellationToken);
+            if (result is null || result.Code != "Ok" || result.Routes is null || result.Routes.Count == 0) return null;
+
+            var item = result.Routes[0];
+            return (item.Geometry, (int)Math.Round(item.Distance), (int)Math.Round(item.Duration));
+        }
+        catch
+        {
+            return null;
+        }
+    }
+}
+
 public sealed class ScenarioOrchestrator(
     OptimizationClient optimizationClient,
     VroomClient vroomClient,
@@ -85,7 +129,7 @@ public sealed class ScenarioOrchestrator(
         // Bir durağın talebi filodaki her araç tarafından taşınabilir olmalıdır.
         // En büyük kapasite kullanılırsa küçük araçlar büyük durakları alamaz ve
         // yeterli toplam kapasite olmasına rağmen VROOM bu araçları boş bırakır.
-        var maxStopDemand = input.Vehicles.Min(vehicle => vehicle.Capacity);
+        var maxStopDemand = input.Vehicles.Min(vehicle => vehicle.EffectiveCapacity);
 
         logger.LogInformation(
             "Durak üretimi başlıyor: {PersonCount} personel, maxStopDemand={MaxStopDemand} (minimum araç kapasitesi).",
@@ -141,9 +185,9 @@ public sealed class ScenarioOrchestrator(
         StopGenerationSummary? stopGenerationSummary,
         CancellationToken cancellationToken)
     {
-        var warnings = new List<string>();
-        var maxCapacity = input.Vehicles.Max(vehicle => vehicle.Capacity);
-        var totalCapacity = input.Vehicles.Sum(vehicle => vehicle.Capacity);
+        var warnings = new List<string>(input.ImportWarnings);
+        var maxCapacity = input.Vehicles.Max(vehicle => vehicle.EffectiveCapacity);
+        var totalCapacity = input.Vehicles.Sum(vehicle => vehicle.EffectiveCapacity);
 
         if (totalCapacity < input.Persons.Count)
             warnings.Add(
@@ -162,6 +206,13 @@ public sealed class ScenarioOrchestrator(
             .Select((vehicle, index) => (VroomId: index + 1, Vehicle: vehicle))
             .ToDictionary(item => item.VroomId, item => item.Vehicle);
         var deadlineSeconds = input.DeadlineSeconds;
+        var activeVehicleCount = Math.Min(input.Vehicles.Count, Math.Max(1, stops.Count));
+        var averageStopsPerActiveVehicle = stops.Count / (double)activeVehicleCount;
+        var maxTasksPerVehicle = stops.Count == 0
+            ? 1
+            : Math.Min(
+                stops.Count,
+                Math.Max(1, (int)Math.Ceiling(averageStopsPerActiveVehicle * _options.MaxRouteStopFactor)));
 
         var request = new VroomRequest(
             Jobs: stops.Select((stop, index) => new VroomJob(
@@ -174,10 +225,11 @@ public sealed class ScenarioOrchestrator(
                 index + 1,
                 vehicle.Id,
                 "car",
-                vehicle.Start,
+                null,
                 input.Workplace,
-                [vehicle.Capacity],
-                [0, deadlineSeconds])).ToList(),
+                [vehicle.EffectiveCapacity],
+                [0, deadlineSeconds],
+                maxTasksPerVehicle)).ToList(),
             Options: new VroomOptions(true));
 
         var vroomResult = await vroomClient.OptimizeAsync(request, cancellationToken);
@@ -208,9 +260,9 @@ public sealed class ScenarioOrchestrator(
             var vehicle = vehicleByVroomId[route.Vehicle];
             var load = route.Pickup?.FirstOrDefault() ?? 0;
 
-            if (load > vehicle.Capacity)
+            if (load > vehicle.EffectiveCapacity)
                 throw new InvalidOperationException(
-                    $"{vehicle.Id} kapasitesi aşıldı: {load}/{vehicle.Capacity}.");
+                    $"{vehicle.Id} etkin kapasitesi aşıldı: {load}/{vehicle.EffectiveCapacity}.");
 
             List<VroomStep> steps = route.Steps ?? [];
 

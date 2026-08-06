@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using Npgsql;
+using NpgsqlTypes;
 
 public interface IScenarioStore
 {
@@ -12,23 +13,18 @@ public interface IScenarioStore
 
     Task<ScenarioInput?> TryGetInputAsync(Guid scenarioId, CancellationToken cancellationToken);
 
-    Task<List<StopResult>?> TryGetStopsAsync(Guid scenarioId, CancellationToken cancellationToken);
-
-    /// <summary>Kayıtlı atanamama gerekçeleri; yeniden rotalamada korunur.</summary>
-    Task<List<UnassignedPersonResult>> TryGetUnassignedPersonsAsync(
-        Guid scenarioId,
-        CancellationToken cancellationToken);
-
     Task<ScenarioResult?> TryGetResultAsync(Guid scenarioId, CancellationToken cancellationToken);
+
+    Task<Guid?> TryGetLatestScenarioIdAsync(CancellationToken cancellationToken);
 
     Task SetStatusAsync(Guid scenarioId, string status, string? error, CancellationToken cancellationToken);
 
     Task SaveComputationAsync(Guid scenarioId, ScenarioComputation computation, CancellationToken cancellationToken);
 
-    /// <summary>Yeniden hesaplama öncesi rotaları temizler, istenirse araçları değiştirir.</summary>
-    Task<bool> PrepareReoptimizeAsync(
+    /// <summary>Aktif planı tam optimizasyon girdisine dönüştürür ve önceki hesaplamayı temizler.</summary>
+    Task<bool> ReplaceForFullOptimizationAsync(
         Guid scenarioId,
-        List<VehicleInput>? vehicles,
+        ScenarioInput input,
         CancellationToken cancellationToken);
 }
 
@@ -62,6 +58,7 @@ public sealed class PostgresScenarioStore(NpgsqlDataSource dataSource) : IScenar
         CREATE TABLE IF NOT EXISTS scenario_persons (
           scenario_id uuid NOT NULL REFERENCES scenarios(id) ON DELETE CASCADE,
           person_id text NOT NULL,
+          person_name text,
           location geography(Point, 4326) NOT NULL,
           PRIMARY KEY (scenario_id, person_id)
         );
@@ -70,7 +67,9 @@ public sealed class PostgresScenarioStore(NpgsqlDataSource dataSource) : IScenar
           scenario_id uuid NOT NULL REFERENCES scenarios(id) ON DELETE CASCADE,
           vehicle_id text NOT NULL,
           capacity integer NOT NULL CHECK (capacity >= 1),
-          start_location geography(Point, 4326) NOT NULL,
+          plate text,
+          reserved_seats integer NOT NULL DEFAULT 0,
+          start_location geography(Point, 4326),
           PRIMARY KEY (scenario_id, vehicle_id)
         );
 
@@ -132,6 +131,10 @@ public sealed class PostgresScenarioStore(NpgsqlDataSource dataSource) : IScenar
           ON scenario_persons USING GIST (location);
         CREATE INDEX IF NOT EXISTS ix_scenarios_created_at
           ON scenarios (created_at DESC);
+        ALTER TABLE scenario_persons ADD COLUMN IF NOT EXISTS person_name text;
+        ALTER TABLE scenario_vehicles ALTER COLUMN start_location DROP NOT NULL;
+        ALTER TABLE scenario_vehicles ADD COLUMN IF NOT EXISTS plate text;
+        ALTER TABLE scenario_vehicles ADD COLUMN IF NOT EXISTS reserved_seats integer NOT NULL DEFAULT 0;
         """;
 
     public async Task EnsureSchemaAsync(CancellationToken cancellationToken)
@@ -155,9 +158,9 @@ public sealed class PostgresScenarioStore(NpgsqlDataSource dataSource) : IScenar
 
         await using (var command = new NpgsqlCommand(
             """
-            INSERT INTO scenarios (id, name, direction, status, workplace, arrival_deadline_seconds)
+            INSERT INTO scenarios (id, name, direction, status, workplace, arrival_deadline_seconds, warnings)
             VALUES (@id, @name, @direction, @status,
-                    ST_SetSRID(ST_MakePoint(@lon, @lat), 4326)::geography, @deadline)
+                    ST_SetSRID(ST_MakePoint(@lon, @lat), 4326)::geography, @deadline, @warnings)
             """,
             connection,
             transaction))
@@ -169,6 +172,7 @@ public sealed class PostgresScenarioStore(NpgsqlDataSource dataSource) : IScenar
             command.Parameters.AddWithValue("lon", input.Workplace[0]);
             command.Parameters.AddWithValue("lat", input.Workplace[1]);
             command.Parameters.AddWithValue("deadline", input.DeadlineSeconds);
+            command.Parameters.AddWithValue("warnings", input.ImportWarnings.ToArray());
             await command.ExecuteNonQueryAsync(cancellationToken);
         }
 
@@ -186,12 +190,13 @@ public sealed class PostgresScenarioStore(NpgsqlDataSource dataSource) : IScenar
         string direction;
         double[] workplace;
         int deadlineSeconds;
+        List<string> importWarnings;
 
         await using (var command = new NpgsqlCommand(
             """
             SELECT name, direction,
                    ST_X(workplace::geometry), ST_Y(workplace::geometry),
-                   arrival_deadline_seconds
+                   arrival_deadline_seconds, warnings
             FROM scenarios WHERE id = @id
             """,
             connection))
@@ -206,12 +211,13 @@ public sealed class PostgresScenarioStore(NpgsqlDataSource dataSource) : IScenar
             direction = reader.GetString(1);
             workplace = [reader.GetDouble(2), reader.GetDouble(3)];
             deadlineSeconds = reader.GetInt32(4);
+            importWarnings = [.. reader.GetFieldValue<string[]>(5)];
         }
 
         var persons = new List<PersonInput>();
         await using (var command = new NpgsqlCommand(
             """
-            SELECT person_id, ST_X(location::geometry), ST_Y(location::geometry)
+            SELECT person_id, ST_X(location::geometry), ST_Y(location::geometry), person_name
             FROM scenario_persons WHERE scenario_id = @id ORDER BY person_id
             """,
             connection))
@@ -219,14 +225,17 @@ public sealed class PostgresScenarioStore(NpgsqlDataSource dataSource) : IScenar
             command.Parameters.AddWithValue("id", scenarioId);
             await using var reader = await command.ExecuteReaderAsync(cancellationToken);
             while (await reader.ReadAsync(cancellationToken))
-                persons.Add(new PersonInput(reader.GetString(0), [reader.GetDouble(1), reader.GetDouble(2)]));
+                persons.Add(new PersonInput(
+                    reader.GetString(0),
+                    [reader.GetDouble(1), reader.GetDouble(2)],
+                    reader.IsDBNull(3) ? null : reader.GetString(3)));
         }
 
         var vehicles = new List<VehicleInput>();
         await using (var command = new NpgsqlCommand(
             """
             SELECT vehicle_id, capacity,
-                   ST_X(start_location::geometry), ST_Y(start_location::geometry)
+                   ST_X(start_location::geometry), ST_Y(start_location::geometry), plate, reserved_seats
             FROM scenario_vehicles WHERE scenario_id = @id ORDER BY vehicle_id
             """,
             connection))
@@ -237,7 +246,9 @@ public sealed class PostgresScenarioStore(NpgsqlDataSource dataSource) : IScenar
                 vehicles.Add(new VehicleInput(
                     reader.GetString(0),
                     reader.GetInt32(1),
-                    [reader.GetDouble(2), reader.GetDouble(3)]));
+                    reader.IsDBNull(2) ? null : [reader.GetDouble(2), reader.GetDouble(3)],
+                    reader.IsDBNull(4) ? null : reader.GetString(4),
+                    reader.GetInt32(5)));
         }
 
         return new ScenarioInput
@@ -248,22 +259,8 @@ public sealed class PostgresScenarioStore(NpgsqlDataSource dataSource) : IScenar
             ArrivalDeadline = TimeOnly.FromTimeSpan(TimeSpan.FromSeconds(deadlineSeconds)),
             Persons = persons,
             Vehicles = vehicles,
+            ImportWarnings = importWarnings,
         };
-    }
-
-    public async Task<List<StopResult>?> TryGetStopsAsync(Guid scenarioId, CancellationToken cancellationToken)
-    {
-        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
-        var stops = await ReadStopsAsync(connection, scenarioId, cancellationToken);
-        return stops.Count == 0 ? null : stops;
-    }
-
-    public async Task<List<UnassignedPersonResult>> TryGetUnassignedPersonsAsync(
-        Guid scenarioId,
-        CancellationToken cancellationToken)
-    {
-        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
-        return await ReadUnassignedPersonsAsync(connection, scenarioId, cancellationToken);
     }
 
     public async Task<ScenarioResult?> TryGetResultAsync(Guid scenarioId, CancellationToken cancellationToken)
@@ -323,6 +320,7 @@ public sealed class PostgresScenarioStore(NpgsqlDataSource dataSource) : IScenar
             workplace = [reader.GetDouble(16), reader.GetDouble(17)];
         }
 
+        var persons = await ReadPersonsAsync(connection, scenarioId, cancellationToken);
         var vehicles = await ReadVehiclesAsync(connection, scenarioId, cancellationToken);
         var stops = await ReadStopsAsync(connection, scenarioId, cancellationToken);
         var routes = await ReadRoutesAsync(connection, scenarioId, cancellationToken);
@@ -334,6 +332,7 @@ public sealed class PostgresScenarioStore(NpgsqlDataSource dataSource) : IScenar
             status,
             deadlineSeconds,
             workplace,
+            persons,
             vehicles,
             stops,
             routes,
@@ -345,6 +344,16 @@ public sealed class PostgresScenarioStore(NpgsqlDataSource dataSource) : IScenar
             error,
             createdAt,
             updatedAt);
+    }
+
+    public async Task<Guid?> TryGetLatestScenarioIdAsync(CancellationToken cancellationToken)
+    {
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        await using var command = new NpgsqlCommand(
+            "SELECT id FROM scenarios WHERE status = 'completed' ORDER BY updated_at DESC LIMIT 1",
+            connection);
+        var value = await command.ExecuteScalarAsync(cancellationToken);
+        return value is Guid id ? id : null;
     }
 
     private static async Task<List<UnassignedPersonResult>> ReadUnassignedPersonsAsync(
@@ -557,52 +566,60 @@ public sealed class PostgresScenarioStore(NpgsqlDataSource dataSource) : IScenar
         await transaction.CommitAsync(cancellationToken);
     }
 
-    public async Task<bool> PrepareReoptimizeAsync(
+    public async Task<bool> ReplaceForFullOptimizationAsync(
         Guid scenarioId,
-        List<VehicleInput>? vehicles,
+        ScenarioInput input,
         CancellationToken cancellationToken)
     {
         await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
         await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
 
-        await using (var command = new NpgsqlCommand(
-            "SELECT count(*) FROM scenario_stops WHERE scenario_id = @id",
-            connection,
-            transaction))
+        await using (var exists = new NpgsqlCommand(
+            "SELECT EXISTS(SELECT 1 FROM scenarios WHERE id = @id)", connection, transaction))
         {
-            command.Parameters.AddWithValue("id", scenarioId);
-            var stopCount = Convert.ToInt64(await command.ExecuteScalarAsync(cancellationToken));
-
-            if (stopCount == 0)
-                return false;
-        }
-
-        if (vehicles is { Count: > 0 })
-        {
-            await ExecuteAsync(connection, transaction, scenarioId,
-                "DELETE FROM scenario_vehicles WHERE scenario_id = @id", cancellationToken);
-            await InsertVehiclesAsync(connection, transaction, scenarioId, vehicles, cancellationToken);
+            exists.Parameters.AddWithValue("id", scenarioId);
+            if (!Convert.ToBoolean(await exists.ExecuteScalarAsync(cancellationToken))) return false;
         }
 
         await ExecuteAsync(connection, transaction, scenarioId,
             "DELETE FROM scenario_routes WHERE scenario_id = @id", cancellationToken);
         await ExecuteAsync(connection, transaction, scenarioId,
+            "DELETE FROM scenario_stops WHERE scenario_id = @id", cancellationToken);
+        await ExecuteAsync(connection, transaction, scenarioId,
             "DELETE FROM scenario_unassigned_persons WHERE scenario_id = @id", cancellationToken);
+        await ExecuteAsync(connection, transaction, scenarioId,
+            "DELETE FROM scenario_persons WHERE scenario_id = @id", cancellationToken);
+        await ExecuteAsync(connection, transaction, scenarioId,
+            "DELETE FROM scenario_vehicles WHERE scenario_id = @id", cancellationToken);
 
         await using (var command = new NpgsqlCommand(
             """
             UPDATE scenarios
-            SET status = @status, deadline_met = NULL, error = NULL, updated_at = now()
+            SET name = @name, workplace = ST_SetSRID(ST_MakePoint(@lon, @lat), 4326)::geography,
+                arrival_deadline_seconds = @deadline, status = @status, deadline_met = NULL,
+                warnings = @warnings, error = NULL,
+                summary_stop_count = NULL, summary_assigned_person_count = NULL,
+                summary_unassigned_person_count = NULL,
+                summary_average_walking_distance_meters = NULL,
+                summary_maximum_walking_distance_meters = NULL,
+                summary_average_walking_duration_seconds = NULL,
+                summary_maximum_walking_duration_seconds = NULL,
+                summary_matrix_chunk_count = NULL, updated_at = now()
             WHERE id = @id
-            """,
-            connection,
-            transaction))
+            """, connection, transaction))
         {
             command.Parameters.AddWithValue("id", scenarioId);
+            command.Parameters.AddWithValue("name", input.Name);
+            command.Parameters.AddWithValue("lon", input.Workplace[0]);
+            command.Parameters.AddWithValue("lat", input.Workplace[1]);
+            command.Parameters.AddWithValue("deadline", input.DeadlineSeconds);
             command.Parameters.AddWithValue("status", ScenarioStatus.Queued);
+            command.Parameters.AddWithValue("warnings", input.ImportWarnings.ToArray());
             await command.ExecuteNonQueryAsync(cancellationToken);
         }
 
+        await InsertPersonsAsync(connection, transaction, scenarioId, input.Persons, cancellationToken);
+        await InsertVehiclesAsync(connection, transaction, scenarioId, input.Vehicles, cancellationToken);
         await transaction.CommitAsync(cancellationToken);
         return true;
     }
@@ -616,7 +633,7 @@ public sealed class PostgresScenarioStore(NpgsqlDataSource dataSource) : IScenar
         await using var command = new NpgsqlCommand(
             """
             SELECT vehicle_id, capacity,
-                   ST_X(start_location::geometry), ST_Y(start_location::geometry)
+                   ST_X(start_location::geometry), ST_Y(start_location::geometry), plate, reserved_seats
             FROM scenario_vehicles WHERE scenario_id = @id ORDER BY vehicle_id
             """,
             connection);
@@ -627,10 +644,35 @@ public sealed class PostgresScenarioStore(NpgsqlDataSource dataSource) : IScenar
             vehicles.Add(new VehicleInput(
                 reader.GetString(0),
                 reader.GetInt32(1),
-                [reader.GetDouble(2), reader.GetDouble(3)]));
+                reader.IsDBNull(2) ? null : [reader.GetDouble(2), reader.GetDouble(3)],
+                reader.IsDBNull(4) ? null : reader.GetString(4),
+                reader.GetInt32(5)));
         }
 
         return vehicles;
+    }
+
+    private static async Task<List<PersonInput>> ReadPersonsAsync(
+        NpgsqlConnection connection,
+        Guid scenarioId,
+        CancellationToken cancellationToken)
+    {
+        var persons = new List<PersonInput>();
+        await using var command = new NpgsqlCommand(
+            """
+            SELECT person_id, ST_X(location::geometry), ST_Y(location::geometry), person_name
+            FROM scenario_persons WHERE scenario_id = @id ORDER BY person_id
+            """, connection);
+        command.Parameters.AddWithValue("id", scenarioId);
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            persons.Add(new PersonInput(
+                reader.GetString(0),
+                [reader.GetDouble(1), reader.GetDouble(2)],
+                reader.IsDBNull(3) ? null : reader.GetString(3)));
+        }
+        return persons;
     }
 
     private static async Task<List<StopResult>> ReadStopsAsync(
@@ -785,13 +827,14 @@ public sealed class PostgresScenarioStore(NpgsqlDataSource dataSource) : IScenar
         {
             await using var command = new NpgsqlCommand(
                 """
-                INSERT INTO scenario_persons (scenario_id, person_id, location)
-                VALUES (@id, @person, ST_SetSRID(ST_MakePoint(@lon, @lat), 4326)::geography)
+                INSERT INTO scenario_persons (scenario_id, person_id, person_name, location)
+                VALUES (@id, @person, @name, ST_SetSRID(ST_MakePoint(@lon, @lat), 4326)::geography)
                 """,
                 connection,
                 transaction);
             command.Parameters.AddWithValue("id", scenarioId);
             command.Parameters.AddWithValue("person", person.Id);
+            command.Parameters.AddWithValue("name", (object?)person.Name ?? DBNull.Value);
             command.Parameters.AddWithValue("lon", person.Location[0]);
             command.Parameters.AddWithValue("lat", person.Location[1]);
             await command.ExecuteNonQueryAsync(cancellationToken);
@@ -809,16 +852,20 @@ public sealed class PostgresScenarioStore(NpgsqlDataSource dataSource) : IScenar
         {
             await using var command = new NpgsqlCommand(
                 """
-                INSERT INTO scenario_vehicles (scenario_id, vehicle_id, capacity, start_location)
-                VALUES (@id, @vehicle, @capacity, ST_SetSRID(ST_MakePoint(@lon, @lat), 4326)::geography)
+                INSERT INTO scenario_vehicles (scenario_id, vehicle_id, capacity, plate, reserved_seats, start_location)
+                VALUES (@id, @vehicle, @capacity, @plate, @reserved,
+                    CASE WHEN @lon IS NULL THEN NULL
+                         ELSE ST_SetSRID(ST_MakePoint(@lon, @lat), 4326)::geography END)
                 """,
                 connection,
                 transaction);
             command.Parameters.AddWithValue("id", scenarioId);
             command.Parameters.AddWithValue("vehicle", vehicle.Id);
             command.Parameters.AddWithValue("capacity", vehicle.Capacity);
-            command.Parameters.AddWithValue("lon", vehicle.Start[0]);
-            command.Parameters.AddWithValue("lat", vehicle.Start[1]);
+            command.Parameters.Add("plate", NpgsqlDbType.Text).Value = (object?)vehicle.Plate ?? DBNull.Value;
+            command.Parameters.AddWithValue("reserved", vehicle.ReservedSeats);
+            command.Parameters.Add("lon", NpgsqlDbType.Double).Value = (object?)vehicle.Start?.ElementAtOrDefault(0) ?? DBNull.Value;
+            command.Parameters.Add("lat", NpgsqlDbType.Double).Value = (object?)vehicle.Start?.ElementAtOrDefault(1) ?? DBNull.Value;
             await command.ExecuteNonQueryAsync(cancellationToken);
         }
     }
@@ -869,20 +916,6 @@ public sealed class InMemoryScenarioStore : IScenarioStore
     public Task<ScenarioInput?> TryGetInputAsync(Guid scenarioId, CancellationToken cancellationToken) =>
         Task.FromResult(_entries.TryGetValue(scenarioId, out var entry) ? entry.Input : null);
 
-    public Task<List<StopResult>?> TryGetStopsAsync(Guid scenarioId, CancellationToken cancellationToken) =>
-        Task.FromResult(
-            _entries.TryGetValue(scenarioId, out var entry) && entry.Computation is { Stops.Count: > 0 }
-                ? entry.Computation.Stops
-                : null);
-
-    public Task<List<UnassignedPersonResult>> TryGetUnassignedPersonsAsync(
-        Guid scenarioId,
-        CancellationToken cancellationToken) =>
-        Task.FromResult(
-            _entries.TryGetValue(scenarioId, out var entry) && entry.Computation is not null
-                ? entry.Computation.UnassignedPersons
-                : []);
-
     public Task<ScenarioResult?> TryGetResultAsync(Guid scenarioId, CancellationToken cancellationToken)
     {
         if (!_entries.TryGetValue(scenarioId, out var entry))
@@ -897,17 +930,28 @@ public sealed class InMemoryScenarioStore : IScenarioStore
             entry.Status,
             entry.Input.DeadlineSeconds,
             entry.Input.Workplace,
+            entry.Input.Persons,
             entry.Input.Vehicles,
             computation?.Stops ?? [],
             computation?.Routes ?? [],
             unassignedPersons.Select(person => person.Id).ToList(),
             unassignedPersons,
             computation?.DeadlineMet,
-            computation?.Warnings ?? [],
+            computation?.Warnings ?? entry.Input.ImportWarnings,
             entry.Summary,
             entry.Error,
             entry.CreatedAt,
             entry.UpdatedAt));
+    }
+
+    public Task<Guid?> TryGetLatestScenarioIdAsync(CancellationToken cancellationToken)
+    {
+        var latest = _entries
+            .Where(kv => kv.Value.Status == ScenarioStatus.Completed)
+            .OrderByDescending(kv => kv.Value.UpdatedAt)
+            .Select(kv => (Guid?)kv.Key)
+            .FirstOrDefault();
+        return Task.FromResult(latest);
     }
 
     public Task SetStatusAsync(Guid scenarioId, string status, string? error, CancellationToken cancellationToken)
@@ -940,31 +984,21 @@ public sealed class InMemoryScenarioStore : IScenarioStore
         return Task.CompletedTask;
     }
 
-    public Task<bool> PrepareReoptimizeAsync(
+    public Task<bool> ReplaceForFullOptimizationAsync(
         Guid scenarioId,
-        List<VehicleInput>? vehicles,
+        ScenarioInput input,
         CancellationToken cancellationToken)
     {
-        if (!_entries.TryGetValue(scenarioId, out var entry) || entry.Computation is not { Stops.Count: > 0 })
-            return Task.FromResult(false);
-
-        var input = vehicles is { Count: > 0 } ? entry.Input with { Vehicles = vehicles } : entry.Input;
-
+        if (!_entries.TryGetValue(scenarioId, out var entry)) return Task.FromResult(false);
         _entries[scenarioId] = entry with
         {
             Input = input,
             Status = ScenarioStatus.Queued,
-            Computation = new ScenarioComputation(
-                entry.Computation.Stops,
-                [],
-                entry.Computation.UnassignedPersons,
-                false,
-                [],
-                null),
+            Computation = null,
+            Summary = null,
             Error = null,
             UpdatedAt = DateTimeOffset.UtcNow,
         };
-
         return Task.FromResult(true);
     }
 }

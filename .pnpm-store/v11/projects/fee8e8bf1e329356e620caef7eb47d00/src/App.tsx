@@ -1,29 +1,50 @@
-import { useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import type { PersonPoint } from './lib/person'
-import type { NewPersonInput } from './lib/api'
+import { downloadPlanExport, saveActivePlan, savePlanVersion, type CurrentUser, type ScenarioResult, type ScenarioVehicle } from './lib/api'
 import { useScenarioSubmission } from './hooks/useScenarioSubmission'
-import { ExcelImportForm } from './components/ExcelImportForm'
 import { ScenarioMap } from './components/ScenarioMap'
-import { AddPersonPanel, type PendingPerson } from './components/AddPersonPanel'
-import { RouteTable } from './components/RouteTable'
-import { UnassignedList } from './components/UnassignedList'
-import { UnassignedVehicleList } from './components/UnassignedVehicleList'
+import { TopActionButtons } from './components/TopActionButtons'
+import { VehicleListPanel, type VehicleRow } from './components/VehicleListPanel'
+import { OverlaySheet } from './components/OverlaySheet'
+import { ExcelImportSheet } from './components/ExcelImportSheet'
+import { PersonAddSheet, type PendingPerson } from './components/PersonAddSheet'
+import { VehicleDrawer } from './components/VehicleDrawer'
+import { StatusStrip, type StatusTone } from './components/StatusStrip'
+import { routeColors } from './lib/colors'
+import { AdminPanel } from './components/AuthShell'
+import { VersionPanel } from './components/VersionPanel'
+import { UnassignedPanel } from './components/UnassignedPanel'
+import { NearbyServicesPanel } from './components/NearbyServicesPanel'
+import {
+  addManualStop, addUnassignedPerson, addVehicle, addViaPointOnRoute, assignPerson, assignPersonToStop, deleteUnassignedPerson,
+  moveStop, moveStopLocation, moveVehicleStartLocation, removeVehicle, unassignPerson, updateVehicle,
+} from './lib/manualPlan'
 
-const unassignedReasonLabels: Record<string, string> = {
-  no_candidate_within_limit: '500 m içinde durak yok',
-  no_route: 'yürüme rotası yok',
-  stop_capacity_full: 'durak kapasitesi doldu',
-  not_routed: 'araç kapasitesi yetersiz',
-}
+type ActiveOverlay = 'none' | 'excel' | 'person'
 
-export function App() {
+export function App({ currentUser, onLogout }: { currentUser: CurrentUser; onLogout: () => Promise<void> }) {
+  const [activeOverlay, setActiveOverlay] = useState<ActiveOverlay>('none')
+  const [selectedVehicleId, setSelectedVehicleId] = useState<string | null>(null)
   const [pendingPersons, setPendingPersons] = useState<PendingPerson[]>([])
   const [isPicking, setIsPicking] = useState(false)
   const [draftLocation, setDraftLocation] = useState<[number, number] | null>(null)
-  const { scenarioState, scenarioResult, liveStatus, errorMessage, submitExcelImport, submitNewPersons } =
+  const [showVersions, setShowVersions] = useState(false)
+  const [showUnassigned, setShowUnassigned] = useState(false)
+  const [showNearbyServices, setShowNearbyServices] = useState(false)
+  const [stopPickVehicleId, setStopPickVehicleId] = useState<string | null>(null)
+  const [focusedLocation, setFocusedLocation] = useState<number[] | null>(null)
+  const [manualError, setManualError] = useState('')
+  const persistenceQueue = useRef<Promise<unknown>>(Promise.resolve())
+  const { scenarioState, scenarioResult, liveStatus, errorMessage, submitExcelImport, submitFullReoptimization, replaceScenarioResult } =
     useScenarioSubmission()
 
   const isBusy = scenarioState === 'submitting' || scenarioState === 'waiting'
+
+  function closeSheet() {
+    setActiveOverlay('none')
+    setIsPicking(false)
+    setDraftLocation(null)
+  }
 
   function handleTogglePicking() {
     setDraftLocation(null)
@@ -31,7 +52,19 @@ export function App() {
   }
 
   function handleMapPick(position: [number, number]) {
+    if (stopPickVehicleId && scenarioResult) {
+      const next = addManualStop(scenarioResult, stopPickVehicleId, [position[1], position[0]])
+      persistManualPlan(next)
+      setSelectedVehicleId(stopPickVehicleId)
+      setStopPickVehicleId(null)
+      return
+    }
     if (draftLocation) return
+    setDraftLocation(position)
+  }
+
+  function handleLocationFound(position: [number, number]) {
+    setIsPicking(false)
     setDraftLocation(position)
   }
 
@@ -58,28 +91,104 @@ export function App() {
     setPendingPersons((prev) => prev.filter((person) => person.id !== id))
   }
 
-  async function handleReoptimize() {
+  function handleSelectVehicle(id: string) {
+    setSelectedVehicleId((prev) => (prev === id ? null : id))
+  }
+
+  async function handleAddPersons() {
     if (!scenarioResult) return
-    const persons: NewPersonInput[] = pendingPersons.map((person) => ({
-      firstName: person.firstName,
-      lastName: person.lastName,
-      location: [person.position[1], person.position[0]],
-    }))
-    const result = await submitNewPersons(scenarioResult.id, persons)
-    if (result?.status === 'completed') {
-      setPendingPersons([])
-      setIsPicking(false)
+    let next = scenarioResult
+    for (const pending of pendingPersons) {
+      let id = pending.id
+      let suffix = 2
+      while (next.persons.some((person) => person.id === id)) id = `${pending.id}-${suffix++}`
+      next = addUnassignedPerson(next, {
+        id, name: pending.name, location: [pending.position[1], pending.position[0]],
+      })
+    }
+    persistManualPlan(next)
+    setPendingPersons([])
+    closeSheet()
+  }
+
+  function persistManualPlan(next: ScenarioResult) {
+    replaceScenarioResult(next)
+    setManualError('')
+    persistenceQueue.current = persistenceQueue.current
+      .then(() => saveActivePlan(next.id, next))
+      .then((saved) => {
+        if (saved) replaceScenarioResult(saved)
+      })
+      .catch((reason) => setManualError(reason instanceof Error ? reason.message : 'Manuel plan kaydedilemedi.'))
+    return next
+  }
+
+  async function handleFullReoptimize(plan = scenarioResult) {
+    if (!plan) return
+    const approved = confirm('Tam optimizasyon tüm araçları, durak sıralarını ve yolcu atamalarını yeniden hesaplayacaktır. Devam edilsin mi?')
+    if (!approved) return
+    await persistenceQueue.current
+    setSelectedVehicleId(null)
+    await submitFullReoptimization(plan.id, null, plan)
+  }
+
+  function handleFleetChanged(next: ScenarioResult) {
+    persistManualPlan(next)
+    if (confirm('Filo değişikliği kaydedildi. Yeni araç yapısına göre tam optimizasyon yapılsın mı? Mevcut manuel ayarların değişebileceği uyarısı bir sonraki adımda gösterilecektir.')) {
+      void handleFullReoptimize(next)
     }
   }
 
-  const displayedRoutes = scenarioResult?.routes ?? []
-  const routedVehicleIds = new Set(displayedRoutes.map((route) => route.vehicleId))
-  const routedVehicles = (scenarioResult?.vehicles ?? []).filter((vehicle) => routedVehicleIds.has(vehicle.id))
-  const unassignedVehicles = (scenarioResult?.vehicles ?? []).filter((vehicle) => !routedVehicleIds.has(vehicle.id))
+  function handleAddVehicle() {
+    if (!scenarioResult) return
+    let index = scenarioResult.vehicles.length + 1
+    let id = `Servis-${String(index).padStart(3, '0')}`
+    while (scenarioResult.vehicles.some((vehicle) => vehicle.id === id)) id = `Servis-${String(++index).padStart(3, '0')}`
+    const vehicle: ScenarioVehicle = { id, capacity: 18, reservedSeats: 0, effectiveCapacity: 18, start: null, plate: null }
+    handleFleetChanged(addVehicle(scenarioResult, vehicle))
+  }
+
+  async function handleSaveVersion() {
+    if (!scenarioResult) return
+    const name = prompt('Versiyon adı')?.trim()
+    if (!name) return
+    const description = prompt('Açıklama (opsiyonel)') ?? ''
+    try {
+      await savePlanVersion(scenarioResult.id, name, description, scenarioResult)
+      alert('Versiyon kaydedildi.')
+    } catch (reason) { alert(reason instanceof Error ? reason.message : 'Versiyon kaydedilemedi.') }
+  }
+
+  const displayedRoutes = useMemo(() => scenarioResult?.routes ?? [], [scenarioResult])
+  const allVehicles = scenarioResult?.vehicles ?? []
+  const realStops = scenarioResult?.stops ?? null
   const unassignedPersonIds = scenarioResult?.unassignedPersonIds ?? []
   const stopSummary = scenarioResult?.stopGenerationSummary ?? null
-  const realStops = scenarioResult?.stops ?? null
   const warnings = scenarioResult?.warnings ?? []
+
+  const vehicleColors = useMemo(() => {
+    const map = new Map<string, string>()
+    displayedRoutes.forEach((route, index) => map.set(route.vehicleId, routeColors[index % routeColors.length]))
+    return map
+  }, [displayedRoutes])
+
+  const vehicleRows: VehicleRow[] = allVehicles.map((vehicle) => {
+    const route = displayedRoutes.find((r) => r.vehicleId === vehicle.id)
+    return {
+      id: vehicle.id,
+      capacity: vehicle.capacity,
+      routed: !!route,
+      color: vehicleColors.get(vehicle.id) ?? routeColors[0],
+      summary: route
+        ? route.geometry
+          ? `${(route.distanceMeters / 1000).toFixed(1)} km · ${Math.round(route.durationSeconds / 60)} dk`
+          : `Manuel sıra · ${route.load} yolcu`
+        : 'Rota atanmadı',
+    }
+  })
+
+  const selectedVehicle = allVehicles.find((v) => v.id === selectedVehicleId)
+  const selectedRoute = displayedRoutes.find((r) => r.vehicleId === selectedVehicleId)
 
   const deadlineNote =
     scenarioResult?.deadlineMet === false ? ' Uyarı: bazı araçlar varış saatini kaçırdı.' : ''
@@ -92,15 +201,7 @@ export function App() {
     failed: `Senaryo başarısız: ${errorMessage}`,
   }
 
-  const unassignedPersons = (scenarioResult?.unassignedPersons ?? []).map((entry) => ({
-    id: entry.id,
-    name: entry.id,
-    reason: unassignedReasonLabels[entry.reason] ?? entry.reason,
-  }))
-
-  const visibleStopCount = (realStops ?? []).length
-  const visiblePersonCount = stopSummary?.assignedPersonCount ?? null
-  const statusTone = scenarioState === 'failed'
+  const statusTone: StatusTone = scenarioState === 'failed'
     ? 'error'
     : scenarioState === 'completed'
       ? 'success'
@@ -108,162 +209,158 @@ export function App() {
         ? 'progress'
         : 'neutral'
 
+  const filteredStops = useMemo(() => {
+    if (!realStops) return null
+    if (!selectedVehicleId || !selectedRoute) return realStops
+    const routeStopIds = new Set([
+      ...(selectedRoute.steps?.map((step) => step.stopId) ?? []),
+      ...(selectedRoute.stopIds ?? []),
+    ])
+    return realStops.filter((stop) => routeStopIds.has(stop.id))
+  }, [realStops, selectedVehicleId, selectedRoute])
+
+  const filteredVehicles = useMemo(() => {
+    if (!selectedVehicleId) return allVehicles
+    return allVehicles.filter((v) => v.id === selectedVehicleId)
+  }, [allVehicles, selectedVehicleId])
+
+  function handleMoveStopLocation(stopId: string, location: [number, number]) {
+    if (!scenarioResult) return
+    const next = moveStopLocation(scenarioResult, stopId, location)
+    persistManualPlan(next)
+  }
+
+  function handleMoveVehicleStart(vehicleId: string, location: [number, number]) {
+    if (!scenarioResult) return
+    const next = moveVehicleStartLocation(scenarioResult, vehicleId, location)
+    persistManualPlan(next)
+  }
+
   return (
-    <main className="app-shell">
-      <header className="topbar">
-        <div className="brand-lockup">
-          <span className="brand-mark" aria-hidden="true">
-            <svg viewBox="0 0 40 40" role="presentation">
-              <path d="M10 11h10c7 0 10 4 10 9s-3 9-10 9H10" />
-              <circle cx="10" cy="11" r="3" />
-              <circle cx="10" cy="29" r="3" />
-              <circle cx="30" cy="20" r="3" />
-            </svg>
-          </span>
-          <span>
-            <strong>Servis Optimizasyon</strong>
-            <small>Operasyon paneli</small>
-          </span>
-        </div>
-        <div className="system-status">
-          <span aria-hidden="true" />
-          Planlama servisi hazır
-        </div>
-      </header>
+    <main className="op-shell">
+      <ScenarioMap
+        routes={selectedVehicleId ? displayedRoutes.filter((r) => r.vehicleId === selectedVehicleId) : displayedRoutes}
+        pendingPersons={pendingPersons as PersonPoint[]}
+        realStops={filteredStops}
+        workplace={scenarioResult?.workplace ?? null}
+        vehicles={filteredVehicles}
+        pickMode={(activeOverlay === 'person' && isPicking && !draftLocation) || !!stopPickVehicleId}
+        focusedLocation={focusedLocation}
+        onPickLocation={handleMapPick}
+        onMoveStopLocation={handleMoveStopLocation}
+        onMoveVehicleStart={handleMoveVehicleStart}
+      />
 
-      <section className="hero">
-        <div className="hero-copy">
-          <p className="eyebrow">Akıllı personel ulaşımı</p>
-          <h1>Daha kısa yürüyüşler.<br />Daha verimli servis rotaları.</h1>
-          <p className="hero-description">
-            Personel konumlarını, araç kapasitelerini ve varış saatini birlikte değerlendirerek
-            dakikalar içinde uygulanabilir servis planları oluşturun.
-          </p>
-          <div className="hero-features" aria-label="Optimizasyon özellikleri">
-            <span><i aria-hidden="true">✓</i> 500 m yürüme sınırı</span>
-            <span><i aria-hidden="true">✓</i> Kapasite kontrollü</span>
-            <span><i aria-hidden="true">✓</i> Gerçek yol ağı</span>
-          </div>
-        </div>
-        <div className="hero-route" aria-hidden="true">
-          <div className="route-card route-card-primary">
-            <span className="route-card-icon">↗</span>
-            <span><small>Aktif rota</small><strong>5 araç planlandı</strong></span>
-          </div>
-          <svg viewBox="0 0 420 250" role="presentation">
-            <path className="route-line route-line-shadow" d="M31 198C88 128 116 207 178 139S270 60 388 50" />
-            <path className="route-line" d="M31 198C88 128 116 207 178 139S270 60 388 50" />
-            <circle className="route-point start" cx="31" cy="198" r="9" />
-            <circle className="route-point" cx="178" cy="139" r="7" />
-            <circle className="route-point end" cx="388" cy="50" r="10" />
-          </svg>
-          <div className="route-card route-card-secondary">
-            <span><small>Ortalama doluluk</small><strong>%84</strong></span>
-            <span className="mini-bars"><i /><i /><i /><i /></span>
-          </div>
-        </div>
-      </section>
-
-      <section className="planner-card" aria-labelledby="planner-title">
-        <div className="section-heading planner-heading">
-          <div>
-            <p className="section-kicker">Yeni planlama</p>
-            <h2 id="planner-title">Senaryonuzu oluşturun</h2>
-            <span>Excel dosyanızı yükleyerek gerçek personel ve işyeri adresleriyle senaryo oluşturun.</span>
-          </div>
-        </div>
-        <ExcelImportForm
-          onSubmit={(form) => void submitExcelImport(form)}
-          disabled={isBusy}
-          isBusy={isBusy}
-        />
-      </section>
-
-      <section className="map-section" aria-labelledby="map-title">
-        <div className="section-heading map-heading">
-          <div>
-            <p className="section-kicker">Canlı önizleme</p>
-            <h2 id="map-title">Rota haritası</h2>
-          </div>
-          <div className="map-legend" aria-label="Harita açıklaması">
-            <span><i className="legend-person" /> Yeni personel</span>
-            <span><i className="legend-stop" /> Durak</span>
-            <span><i className="legend-workplace" /> İşyeri</span>
-            <span><i className="legend-vehicle" /> Araç çıkış</span>
-          </div>
-        </div>
-        <AddPersonPanel
-          isPicking={isPicking}
-          onTogglePicking={handleTogglePicking}
-          draftLocation={draftLocation}
-          onConfirmDraft={handleConfirmDraft}
-          onCancelDraft={handleCancelDraft}
-          pendingPersons={pendingPersons}
-          onRemovePending={handleRemovePending}
-          onReoptimize={() => void handleReoptimize()}
-          disabled={isBusy || !scenarioResult}
-          isBusy={isBusy}
-        />
-        <div className="map-layout">
-          <ScenarioMap
-            routes={displayedRoutes}
-            pendingPersons={pendingPersons as PersonPoint[]}
-            realStops={realStops}
-            workplace={scenarioResult?.workplace ?? null}
-            vehicles={routedVehicles}
-            pickMode={isPicking && !draftLocation}
-            onPickLocation={handleMapPick}
+      {activeOverlay === 'none' && (
+        <>
+          <TopActionButtons
+            onOpenExcel={() => setActiveOverlay('excel')}
+            onOpenPerson={() => setActiveOverlay('person')}
+            onSaveVersion={() => void handleSaveVersion()}
+            onOpenVersions={() => scenarioResult && setShowVersions(true)}
+            onExport={() => scenarioResult && void downloadPlanExport(scenarioResult.id)}
+            onFullReoptimize={() => void handleFullReoptimize()}
+            onNearbyServices={() => scenarioResult && setShowNearbyServices(true)}
+            onLogout={() => void onLogout()}
           />
-          <aside className="scenario-summary" aria-label="Senaryo özeti">
-            <div className="summary-header">
-              <div>
-                <p className="section-kicker">Anlık özet</p>
-                <h3>{scenarioResult?.name ?? 'Excel senaryosu'}</h3>
-              </div>
-              <span className={`summary-state ${statusTone}`}>
-                <i aria-hidden="true" />
-                {scenarioState === 'completed' ? 'Tamamlandı' : isBusy ? 'İşleniyor' : scenarioState === 'failed' ? 'Hata' : 'Önizleme'}
-              </span>
-            </div>
-            <div className="summary-metrics">
-              <div><span>Personel</span><strong>{visiblePersonCount ?? '—'}</strong></div>
-              <div><span>Araç</span><strong>{displayedRoutes.length || '—'}</strong></div>
-              <div><span>Durak</span><strong>{visibleStopCount}</strong></div>
-              <div><span>Rota</span><strong>{displayedRoutes.length}</strong></div>
-            </div>
-            <div className={`status-callout ${statusTone}`} aria-live="polite">
-              <span className="status-callout-icon" aria-hidden="true" />
-              <span>{statusMessage[scenarioState]}</span>
-            </div>
-            {warnings.length > 0 && <div className="status-warning">{warnings.join(' ')}</div>}
-            {stopSummary && (
-              <div className="walking-summary">
-                <span>Yürüme performansı</span>
-                <strong>
-                  {stopSummary.averageWalkingDistanceMeters != null
-                    ? `${Math.round(stopSummary.averageWalkingDistanceMeters)} m ortalama`
-                    : 'Veri bekleniyor'}
-                </strong>
-                <div className="walking-bar"><i style={{ width: `${Math.min(100, ((stopSummary.averageWalkingDistanceMeters ?? 0) / 500) * 100)}%` }} /></div>
-                <small>
-                  {stopSummary.assignedPersonCount} atanan · {stopSummary.unassignedPersonCount} atanamayan
-                </small>
-              </div>
-            )}
-          </aside>
-        </div>
-      </section>
+          <VehicleListPanel
+            vehicles={vehicleRows}
+            selectedVehicleId={selectedVehicleId}
+            onSelect={handleSelectVehicle}
+            unassignedPersonCount={unassignedPersonIds.length}
+            onOpenUnassigned={() => setShowUnassigned(true)}
+            onAddVehicle={handleAddVehicle}
+          />
+        </>
+      )}
 
-      <div className="results-grid">
-        <RouteTable routes={displayedRoutes} isMock={false} />
-        <UnassignedList persons={unassignedPersons} />
-        <UnassignedVehicleList vehicles={unassignedVehicles} />
-      </div>
+      {activeOverlay === 'excel' && (
+        <OverlaySheet kicker="Yeni planlama" title="Excel Aktar" onClose={closeSheet}>
+          <ExcelImportSheet
+            onSubmit={(form) => {
+              setActiveOverlay('none')
+              void submitExcelImport(form)
+            }}
+            disabled={isBusy}
+            isBusy={isBusy}
+            errorMessage={scenarioState === 'failed' ? errorMessage : ''}
+          />
+        </OverlaySheet>
+      )}
 
-      <footer>
-        <span>Servis Optimizasyon</span>
-        <span>OSRM ve VROOM destekli rota planlama</span>
-      </footer>
+      {activeOverlay === 'person' && (
+        <OverlaySheet kicker="Sonradan ekleme" title="Kişi Ekle" onClose={closeSheet}>
+          <PersonAddSheet
+            isPicking={isPicking}
+            onTogglePicking={handleTogglePicking}
+            draftLocation={draftLocation}
+            onLocationFound={handleLocationFound}
+            onConfirmDraft={handleConfirmDraft}
+            onCancelDraft={handleCancelDraft}
+            pendingPersons={pendingPersons}
+            onRemovePending={handleRemovePending}
+            onReoptimize={() => void handleAddPersons()}
+            disabled={isBusy || !scenarioResult}
+            isBusy={isBusy}
+          />
+        </OverlaySheet>
+      )}
+
+      {selectedVehicleId && (
+        <VehicleDrawer
+          vehicleId={selectedVehicleId}
+          vehicle={selectedVehicle}
+          route={selectedRoute}
+          stops={realStops ?? []}
+          persons={scenarioResult?.persons ?? []}
+          unassignedPersonIds={unassignedPersonIds}
+          vehicles={allVehicles}
+          allRoutes={displayedRoutes}
+          workplace={scenarioResult?.workplace ?? null}
+          color={vehicleColors.get(selectedVehicleId) ?? '#c8d5ca'}
+          onClose={() => setSelectedVehicleId(null)}
+          onUpdateVehicle={(patch) => scenarioResult && handleFleetChanged(updateVehicle(scenarioResult, selectedVehicleId, patch))}
+          onMovePerson={(personId, vehicleId) => scenarioResult && persistManualPlan(assignPerson(scenarioResult, personId, vehicleId))}
+          onUnassignPerson={(personId) => scenarioResult && persistManualPlan(unassignPerson(scenarioResult, personId))}
+          onPickStop={() => { setStopPickVehicleId(selectedVehicleId) }}
+          onMoveStop={(stopId, direction) => scenarioResult && persistManualPlan(moveStop(scenarioResult, selectedVehicleId, stopId, direction))}
+          onAssignToStop={(personId, stopId) => scenarioResult && persistManualPlan(assignPersonToStop(scenarioResult, personId, stopId))}
+          onSelectStop={(location) => setFocusedLocation(location)}
+          onDeleteVehicle={() => {
+            if (!scenarioResult) return
+            setSelectedVehicleId(null)
+            handleFleetChanged(removeVehicle(scenarioResult, selectedVehicleId))
+          }}
+        />
+      )}
+
+      {showVersions && scenarioResult && <VersionPanel
+        scenarioId={scenarioResult.id}
+        onClose={() => setShowVersions(false)}
+        onActivated={(plan) => replaceScenarioResult(plan)}
+      />}
+      {showUnassigned && scenarioResult && <UnassignedPanel
+        plan={scenarioResult}
+        vehicles={allVehicles}
+        onClose={() => setShowUnassigned(false)}
+        onAssign={(personId, vehicleId) => persistManualPlan(assignPerson(scenarioResult, personId, vehicleId))}
+        onDelete={(personId) => persistManualPlan(deleteUnassignedPerson(scenarioResult, personId))}
+      />}
+      {showNearbyServices && scenarioResult && <NearbyServicesPanel
+        scenarioId={scenarioResult.id}
+        onClose={() => setShowNearbyServices(false)}
+        onSelectVehicle={setSelectedVehicleId}
+      />}
+
+      {stopPickVehicleId && <div className="op-map-pick-banner">Haritada yeni durağın yerini seçin · <button onClick={() => setStopPickVehicleId(null)}>Vazgeç</button></div>}
+
+      <StatusStrip
+        tone={statusTone}
+        message={statusMessage[scenarioState]}
+        warnings={manualError ? [...warnings, manualError] : warnings}
+        unassignedPersonCount={unassignedPersonIds.length}
+        stopSummary={stopSummary}
+      />
     </main>
   )
 }
