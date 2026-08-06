@@ -99,7 +99,7 @@ public sealed class NominatimGeocodingService(
         bool restrictToPublicViewbox,
         CancellationToken cancellationToken)
     {
-        var queryString = $"search?format=jsonv2&limit=1&addressdetails=0"
+        var queryString = $"search?format=jsonv2&limit=5&addressdetails=0"
             + $"&countrycodes={Uri.EscapeDataString(options.CountryCodes)}"
             + $"&q={Uri.EscapeDataString(query)}";
         if (restrictToPublicViewbox)
@@ -108,15 +108,69 @@ public sealed class NominatimGeocodingService(
         var url = new Uri(new Uri(baseUrl.TrimEnd('/') + "/"), queryString);
         using var response = await client.GetAsync(url, cancellationToken);
         response.EnsureSuccessStatusCode();
-        var first = (await response.Content.ReadFromJsonAsync<List<NominatimCandidate>>(
-            cancellationToken: cancellationToken) ?? []).FirstOrDefault();
+        var candidates = await response.Content.ReadFromJsonAsync<List<NominatimCandidate>>(
+            cancellationToken: cancellationToken) ?? [];
 
-        return first is not null
-            && double.TryParse(first.Lon, System.Globalization.CultureInfo.InvariantCulture, out var longitude)
-            && double.TryParse(first.Lat, System.Globalization.CultureInfo.InvariantCulture, out var latitude)
-                ? new GeocodingResult(longitude, latitude, first.DisplayName ?? query)
-                : null;
+        foreach (var candidate in candidates.Where(candidate => IsPlausibleMatch(query, candidate.DisplayName)))
+        {
+            if (double.TryParse(candidate.Lon, System.Globalization.CultureInfo.InvariantCulture, out var longitude)
+                && double.TryParse(candidate.Lat, System.Globalization.CultureInfo.InvariantCulture, out var latitude))
+                return new GeocodingResult(longitude, latitude, candidate.DisplayName ?? query);
+        }
+
+        return null;
     }
+
+    /// <summary>
+    /// Nominatim kimi eksik adreslerde yalnızca şehir benzerliğine göre bambaşka
+    /// bir caddeyi ilk sıraya koyabiliyor. Sorgudaki ayırt edici yol/mahalle
+    /// parçalarını sonuçla karşılaştırarak bariz yanlış eşleşmeleri eleriz.
+    /// </summary>
+    private static bool IsPlausibleMatch(string query, string? displayName)
+    {
+        if (string.IsNullOrWhiteSpace(displayName))
+            return false;
+
+        var queryTokens = DistinctiveTokens(query);
+        if (queryTokens.Count == 0)
+            return true;
+
+        var resultTokens = DistinctiveTokens(displayName);
+        var queryNumbers = queryTokens.Where(token => token.All(char.IsDigit)).ToHashSet();
+        if (queryNumbers.Count > 0)
+        {
+            var resultNumbers = resultTokens.Where(token => token.All(char.IsDigit)).ToHashSet();
+            if (!queryNumbers.Overlaps(resultNumbers))
+                return false;
+
+            var queryWords = queryTokens.Where(token => !token.All(char.IsDigit)).ToHashSet();
+            return queryWords.Count == 0 || queryWords.Overlaps(resultTokens);
+        }
+
+        return queryTokens.Overlaps(resultTokens);
+    }
+
+    private static HashSet<string> DistinctiveTokens(string value)
+    {
+        var ascii = value.ToUpperInvariant()
+            .Replace('Ç', 'C')
+            .Replace('Ğ', 'G')
+            .Replace('İ', 'I')
+            .Replace('Ö', 'O')
+            .Replace('Ş', 'S')
+            .Replace('Ü', 'U');
+        var tokens = Regex.Split(ascii, @"[^A-Z0-9]+")
+            .Where(token => token.Length >= 4 || (token.Length >= 3 && token.All(char.IsDigit)))
+            .Where(token => !AddressNoiseTokens.Contains(token));
+        return new HashSet<string>(tokens, StringComparer.Ordinal);
+    }
+
+    private static readonly HashSet<string> AddressNoiseTokens = new(StringComparer.Ordinal)
+    {
+        "ANKARA", "TURKIYE", "MAHALLE", "MAHALLESI", "CADDE", "CADDESI",
+        "SOKAK", "SOKAGI", "BULVAR", "BULVARI", "BLOK", "BLOCK", "SITE",
+        "SITESI", "APT", "APARTMAN", "PLAZA", "NUMARA",
+    };
 
     private static string RemoveBuildingNumber(string address)
     {

@@ -27,5 +27,7 @@ infrastructure/postgres-data/
 .vscode/
 *.user
 
+**/outputs/
+
 # Local-only Docker Compose overrides (e.g. Apple Silicon platform pins)
 compose.override.yaml

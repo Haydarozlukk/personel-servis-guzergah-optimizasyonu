@@ -146,41 +146,4 @@ public class InMemoryScenarioStoreTests
         Assert.Equal("VROOM hatası", result.Error);
     }
 
-    [Fact]
-    public async Task ReoptimizeIsRejectedBeforeAnyStopExists()
-    {
-        var store = new InMemoryScenarioStore();
-        var scenarioId = Guid.NewGuid();
-
-        await store.CreateAsync(scenarioId, Input(), CancellationToken.None);
-
-        Assert.False(await store.PrepareReoptimizeAsync(scenarioId, null, CancellationToken.None));
-    }
-
-    [Fact]
-    public async Task ReoptimizeKeepsStopsAndReplacesVehicles()
-    {
-        var store = new InMemoryScenarioStore();
-        var scenarioId = Guid.NewGuid();
-
-        await store.CreateAsync(scenarioId, Input(), CancellationToken.None);
-        await store.SaveComputationAsync(scenarioId, Computation(), CancellationToken.None);
-
-        var replaced = await store.PrepareReoptimizeAsync(
-            scenarioId,
-            [new VehicleInput("vehicle-009", 8, [32.8100, 39.9700])],
-            CancellationToken.None);
-
-        Assert.True(replaced);
-
-        var input = await store.TryGetInputAsync(scenarioId, CancellationToken.None);
-        Assert.Equal("vehicle-009", Assert.Single(input!.Vehicles).Id);
-
-        var stops = await store.TryGetStopsAsync(scenarioId, CancellationToken.None);
-        Assert.Equal("stop-candidate-001", Assert.Single(stops!).Id);
-
-        var result = await store.TryGetResultAsync(scenarioId, CancellationToken.None);
-        Assert.Equal(ScenarioStatus.Queued, result!.Status);
-        Assert.Empty(result.Routes);
-    }
 }

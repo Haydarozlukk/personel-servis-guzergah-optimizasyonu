@@ -8,6 +8,8 @@ public sealed record ExcelImportForm(
     int? VehicleCount,
     int? VehicleCapacity);
 
+public sealed record ScenarioExcelSettings(string? DestinationAddress, TimeOnly? ArrivalDeadline);
+
 public sealed record ExcelImportResult(
     ScenarioInput? Input,
     Dictionary<string, string[]> Errors);
@@ -43,6 +45,7 @@ public static class ScenarioExcelImport
 
     private const string PersonSheetName = "personel";
     private const string VehicleSheetName = "araclar";
+    private const string SettingsSheetName = "ayarlar";
 
     private static readonly string[] PersonIdHeaders = ["sicil numarası", "sicil no", "sicil", "id", "kimlik"];
     private static readonly string[] VehicleIdHeaders = ["plaka", "id", "kimlik"];
@@ -66,19 +69,38 @@ public static class ScenarioExcelImport
         personSheet.Row(1).Style.Font.Bold = true;
         personSheet.Columns().AdjustToContents();
 
-        var vehicleSheet = workbook.Worksheets.Add(VehicleSheetName);
-        vehicleSheet.Cell(1, 1).Value = "plaka";
-        vehicleSheet.Cell(1, 2).Value = "kapasite";
-        vehicleSheet.Cell(1, 3).Value = "adres";
-        vehicleSheet.Cell(2, 1).Value = "06 ABC 123";
-        vehicleSheet.Cell(2, 2).Value = 16;
-        vehicleSheet.Cell(2, 3).Value = "Ostim Mahallesi, Yenimahalle, Ankara";
-        vehicleSheet.Row(1).Style.Font.Bold = true;
-        vehicleSheet.Columns().AdjustToContents();
+        var settingsSheet = workbook.Worksheets.Add(SettingsSheetName);
+        settingsSheet.Cell(1, 1).Value = "alan";
+        settingsSheet.Cell(1, 2).Value = "değer";
+        settingsSheet.Cell(2, 1).Value = "varış adresi";
+        settingsSheet.Cell(2, 2).Value = "";
+        settingsSheet.Cell(3, 1).Value = "varış saati";
+        settingsSheet.Cell(3, 2).Value = "08:30:00";
+        settingsSheet.Row(1).Style.Font.Bold = true;
+        settingsSheet.Columns().AdjustToContents();
 
         using var stream = new MemoryStream();
         workbook.SaveAs(stream);
         return stream.ToArray();
+    }
+
+    public static ScenarioExcelSettings ReadSettings(Stream stream)
+    {
+        using var workbook = new XLWorkbook(stream);
+        var sheet = FindSheet(workbook, SettingsSheetName);
+        if (sheet is null) return new ScenarioExcelSettings(null, null);
+
+        string? destination = null;
+        TimeOnly? deadline = null;
+        foreach (var row in sheet.RowsUsed().Skip(1))
+        {
+            var key = row.Cell(1).GetString().Trim().ToLowerInvariant();
+            var value = row.Cell(2).GetString().Trim();
+            if (key == "varış adresi" && value.Length > 0) destination = value;
+            if (key == "varış saati" && TimeOnly.TryParse(value, CultureInfo.InvariantCulture, out var parsed))
+                deadline = parsed;
+        }
+        return new ScenarioExcelSettings(destination, deadline);
     }
 
     public static AddressExcelImportResult ParseAddresses(Stream stream, ExcelImportForm form)
@@ -145,11 +167,10 @@ public static class ScenarioExcelImport
             if (persons.Count == 0)
                 Add(errors, "persons", $"'{PersonSheetName}' sayfasında veri satırı bulunamadı.");
 
-            var vehicleResult = ReadVehicles(workbook, form, errors);
             return new AddressExcelImportResult(
                 persons,
-                vehicleResult?.Vehicles,
-                vehicleResult?.AddressRows,
+                [],
+                null,
                 Build(errors));
         }
     }
