@@ -82,6 +82,24 @@ export async function importScenarioFromExcel(form: ExcelImportForm): Promise<Sc
   return response.json()
 }
 
+export async function importAppendScenarioFromExcel(
+  scenarioId: string,
+  form: ExcelImportForm,
+): Promise<{ persons: Array<{ id: string; name: string; address: string; location: number[] }>; skippedCount: number }> {
+  const body = new FormData()
+  body.set('file', form.file)
+  body.set('name', form.name)
+  body.set('arrivalDeadline', form.arrivalDeadline)
+  if (form.destinationAddress) body.set('destinationAddress', form.destinationAddress)
+
+  const response = await fetch(`${apiBaseUrl}/api/v1/scenarios/${scenarioId}/import-append`, {
+    method: 'POST', body, credentials: 'include',
+  })
+  if (response.status === 413) throw new Error('Dosya boyutu sınırını aşıyor.')
+  if (!response.ok) throw new Error(await parseErrorMessage(response))
+  return response.json()
+}
+
 export async function downloadImportTemplate(): Promise<void> {
   const response = await fetch(`${apiBaseUrl}/api/v1/scenarios/import/template`, { credentials: 'include' })
   if (!response.ok) throw new Error(await parseErrorMessage(response))

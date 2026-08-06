@@ -133,7 +133,7 @@ export function PersonAddSheet({
           </ul>
           <button type="button" className="op-btn op-btn-primary op-reoptimize" disabled={isBusy} onClick={onReoptimize}>
             {isBusy && <span className="op-spinner" aria-hidden="true" />}
-            {isBusy ? 'Kaydediliyor…' : 'Servis atanmamış listesine ekle →'}
+            {isBusy ? 'Kaydediliyor…' : 'En Uygun Servise Ekle →'}
           </button>
         </>
       )}

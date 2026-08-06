@@ -406,3 +406,256 @@ export function vehicleHasAvailableSeat(
     .filter((personId) => personId !== excludingPersonId)
   return assigned.length < vehicle.effectiveCapacity
 }
+
+function haversineDistanceMeters(loc1: number[], loc2: number[]): number {
+  const [lng1, lat1] = normalizeLngLat(loc1)
+  const [lng2, lat2] = normalizeLngLat(loc2)
+  const R = 6371000
+  const dLat = ((lat2 - lat1) * Math.PI) / 180
+  const dLng = ((lng2 - lng1) * Math.PI) / 180
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLng / 2) * Math.sin(dLng / 2)
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+  return R * c
+}
+
+export function findOptimalStopOrder(
+  stopLocations: Array<{ id: string; location: number[] }>,
+  startLoc: number[] | null,
+  workplaceLoc: number[] | null,
+): string[] {
+  if (stopLocations.length <= 1) return stopLocations.map((s) => s.id)
+
+  const start = startLoc ? normalizeLngLat(startLoc) : null
+  const workplace = workplaceLoc ? normalizeLngLat(workplaceLoc) : null
+
+  const unvisited = [...stopLocations]
+  const orderedIds: string[] = []
+
+  let currentLoc = start ?? normalizeLngLat(unvisited[0].location)
+
+  while (unvisited.length > 0) {
+    let nearestIndex = 0
+    let minDistance = Infinity
+
+    for (let i = 0; i < unvisited.length; i++) {
+      const dist = haversineDistanceMeters(currentLoc, unvisited[i].location)
+      if (dist < minDistance) {
+        minDistance = dist
+        nearestIndex = i
+      }
+    }
+
+    const nextStop = unvisited.splice(nearestIndex, 1)[0]
+    orderedIds.push(nextStop.id)
+    currentLoc = normalizeLngLat(nextStop.location)
+  }
+
+  if (orderedIds.length >= 3 && orderedIds.length <= 40) {
+    const stopMap = new Map(stopLocations.map((s) => [s.id, s]))
+    let improved = true
+    let passes = 0
+
+    const calcTotalDist = (ids: string[]) => {
+      let total = 0
+      let prev = start
+      for (const id of ids) {
+        const loc = stopMap.get(id)?.location
+        if (loc) {
+          if (prev) total += haversineDistanceMeters(prev, loc)
+          prev = normalizeLngLat(loc)
+        }
+      }
+      if (prev && workplace) total += haversineDistanceMeters(prev, workplace)
+      return total
+    }
+
+    let bestDist = calcTotalDist(orderedIds)
+
+    while (improved && passes < 10) {
+      improved = false
+      passes++
+      for (let i = 0; i < orderedIds.length - 1; i++) {
+        for (let k = i + 1; k < orderedIds.length; k++) {
+          const newIds = [
+            ...orderedIds.slice(0, i),
+            ...orderedIds.slice(i, k + 1).reverse(),
+            ...orderedIds.slice(k + 1),
+          ]
+          const newDist = calcTotalDist(newIds)
+          if (newDist < bestDist - 1) {
+            orderedIds.splice(0, orderedIds.length, ...newIds)
+            bestDist = newDist
+            improved = true
+          }
+        }
+      }
+    }
+  }
+
+  return orderedIds
+}
+
+export function distributePersonsToPlan(
+  plan: ScenarioResult,
+  newPersons: Array<{ id: string; name: string; address: string; location: number[] }>,
+): ScenarioResult {
+  const updatedPlan: ScenarioResult = { ...plan }
+
+  const stops = [...updatedPlan.stops]
+  const routes = [...updatedPlan.routes]
+  const persons = [...updatedPlan.persons]
+  const unassignedPersonIds = [...updatedPlan.unassignedPersonIds]
+  const unassignedPersons = [...(updatedPlan.unassignedPersons ?? [])]
+
+  const vehiclePassengerCount = new Map<string, number>()
+  for (const v of updatedPlan.vehicles) {
+    let count = 0
+    for (const r of routes) {
+      if (r.vehicleId === v.id) {
+        for (const stopId of r.stopIds) {
+          const s = stops.find((item) => item.id === stopId)
+          if (s) count += s.assignedPersonIds.length
+        }
+      }
+    }
+    vehiclePassengerCount.set(v.id, count)
+  }
+
+  for (const p of newPersons) {
+    let pId = p.id
+    if (persons.some((item) => item.id === pId)) {
+      pId = `${p.id}-${Math.floor(Math.random() * 1000)}`
+    }
+    const personObj = {
+      id: pId,
+      name: p.name || 'Personel',
+      address: p.address || '',
+      location: [...p.location],
+    }
+    persons.push(personObj)
+
+    let bestDistance = Infinity
+    let bestStopId: string | null = null
+    let bestVehicleId: string | null = null
+
+    for (const v of updatedPlan.vehicles) {
+      const currentLoad = vehiclePassengerCount.get(v.id) ?? 0
+      if (currentLoad >= v.effectiveCapacity) continue
+
+      const route = routes.find((r) => r.vehicleId === v.id)
+      if (!route) continue
+
+      for (const stopId of route.stopIds) {
+        const s = stops.find((item) => item.id === stopId)
+        if (!s) continue
+
+        const dist = haversineDistanceMeters(p.location, s.location)
+        if (dist < bestDistance) {
+          bestDistance = dist
+          bestStopId = stopId
+          bestVehicleId = v.id
+        }
+      }
+    }
+
+    if (bestStopId && bestVehicleId && bestDistance <= 800) {
+      const stopIndex = stops.findIndex((s) => s.id === bestStopId)
+      if (stopIndex !== -1) {
+        const existingStop = stops[stopIndex]
+        stops[stopIndex] = {
+          ...existingStop,
+          assignedPersonIds: [...existingStop.assignedPersonIds, pId],
+          walkingDistancesMeters: { ...existingStop.walkingDistancesMeters, [pId]: Math.round(bestDistance) },
+          walkingDurationsSeconds: { ...existingStop.walkingDurationsSeconds, [pId]: Math.round(bestDistance / 1.2) },
+        }
+        vehiclePassengerCount.set(bestVehicleId, (vehiclePassengerCount.get(bestVehicleId) ?? 0) + 1)
+        continue
+      }
+    }
+
+    let bestVehicleForNewStop: string | null = null
+    let minVehicleDist = Infinity
+
+    for (const v of updatedPlan.vehicles) {
+      const currentLoad = vehiclePassengerCount.get(v.id) ?? 0
+      if (currentLoad >= v.effectiveCapacity) continue
+
+      const route = routes.find((r) => r.vehicleId === v.id)
+      if (!route) continue
+
+      for (const stopId of route.stopIds) {
+        const s = stops.find((item) => item.id === stopId)
+        if (!s) continue
+        const dist = haversineDistanceMeters(p.location, s.location)
+        if (dist < minVehicleDist) {
+          minVehicleDist = dist
+          bestVehicleForNewStop = v.id
+        }
+      }
+    }
+
+    if (bestVehicleForNewStop) {
+      const routeIndex = routes.findIndex((r) => r.vehicleId === bestVehicleForNewStop)
+      if (routeIndex !== -1) {
+        const route = routes[routeIndex]
+        const newStopId = `stop-excel-${pId}`
+        const newStop: ScenarioStop = {
+          id: newStopId,
+          location: [...p.location],
+          assignedPersonIds: [pId],
+          walkingDistancesMeters: { [pId]: 0 },
+          walkingDurationsSeconds: { [pId]: 0 },
+          demand: 1,
+          qualityScore: 1,
+          averageWalkingDistanceMeters: 0,
+        }
+        stops.push(newStop)
+        routes[routeIndex] = {
+          ...route,
+          stopIds: [...route.stopIds, newStopId],
+          geometry: '',
+          distanceMeters: 0,
+          durationSeconds: 0,
+        }
+        vehiclePassengerCount.set(bestVehicleForNewStop, (vehiclePassengerCount.get(bestVehicleForNewStop) ?? 0) + 1)
+        continue
+      }
+    }
+
+    unassignedPersonIds.push(pId)
+    unassignedPersons.push({ id: pId, reason: 'stop_capacity_full' as const })
+  }
+
+  // Optimize stop order on every route via TSP 2-Opt to ensure no zigzags
+  const optimizedRoutes = routes.map((route) => {
+    const vehicle = updatedPlan.vehicles.find((v) => v.id === route.vehicleId)
+    const routeStops = route.stopIds
+      .map((id) => stops.find((s) => s.id === id))
+      .filter((s): s is ScenarioStop => Boolean(s))
+    const optimizedStopIds = findOptimalStopOrder(
+      routeStops,
+      vehicle?.start ?? null,
+      updatedPlan.workplace ?? null,
+    )
+    const orderChanged = optimizedStopIds.some((id, idx) => id !== route.stopIds[idx])
+    return {
+      ...route,
+      stopIds: optimizedStopIds,
+      ...(orderChanged || !route.geometry ? { geometry: '', distanceMeters: 0, durationSeconds: 0 } : {}),
+    }
+  })
+
+  const result: ScenarioResult = {
+    ...updatedPlan,
+    persons,
+    stops,
+    routes: optimizedRoutes,
+    unassignedPersonIds,
+    unassignedPersons,
+    updatedAt: new Date().toISOString(),
+  }
+
+  return recalculate(result)
+}
