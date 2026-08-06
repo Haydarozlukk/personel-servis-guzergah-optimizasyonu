@@ -1,10 +1,9 @@
 import { useState } from 'react'
 import {
-  addPersonsAndReoptimize,
+  fullReoptimize,
   importScenarioFromExcel,
   waitForScenarioResult,
   type ExcelImportForm,
-  type NewPersonInput,
   type ScenarioAccepted,
   type ScenarioResult,
 } from '../lib/api'
@@ -46,9 +45,17 @@ export function useScenarioSubmission() {
     return trackAcceptedScenario(() => importScenarioFromExcel(form))
   }
 
-  async function submitNewPersons(scenarioId: string, persons: NewPersonInput[]) {
-    return trackAcceptedScenario(() => addPersonsAndReoptimize(scenarioId, persons))
+  async function submitFullReoptimization(scenarioId: string, snapshotName: string, plan: ScenarioResult) {
+    return trackAcceptedScenario(() => fullReoptimize(scenarioId, snapshotName, plan))
   }
 
-  return { scenarioState, scenarioResult, liveStatus, errorMessage, submitExcelImport, submitNewPersons }
+  return {
+    scenarioState,
+    scenarioResult,
+    liveStatus,
+    errorMessage,
+    submitExcelImport,
+    submitFullReoptimization,
+    replaceScenarioResult: setScenarioResult,
+  }
 }

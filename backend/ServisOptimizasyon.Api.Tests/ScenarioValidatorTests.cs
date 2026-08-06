@@ -9,7 +9,7 @@ public class ScenarioValidatorTests
         Workplace = [32.8541, 39.9208],
         ArrivalDeadline = new TimeOnly(8, 30),
         Persons = [new PersonInput("person-001", [32.8597, 39.9334])],
-        Vehicles = [new VehicleInput("vehicle-001", 16, [32.8597, 39.9334])],
+        Vehicles = [new VehicleInput("vehicle-001", 18, [32.8597, 39.9334])],
     };
 
     [Fact]

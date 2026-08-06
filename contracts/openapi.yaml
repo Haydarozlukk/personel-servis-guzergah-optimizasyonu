@@ -55,11 +55,12 @@ paths:
       description: |
         `personel` sayfası zorunludur; başlık satırından sonra `id` ve `adres`
         sütunları okunur. Adresler backend tarafından yapılandırılmış, kurum içi
-        Nominatim uyumlu servisle WGS84 koordinatına çevrilir. İşyeri adresi de
-        aynı servisle koordinata çevrilir. `araclar` sayfası
-        varsa `id`, `kapasite`, `boylam`, `enlem`
-        sütunları okunur; yoksa `vehicleCount` ve `vehicleCapacity` alanları zorunludur
-        ve araçlar işyerinden başlatılır.
+        Nominatim uyumlu servisle WGS84 koordinatına çevrilir. Dinamik varış adresi de
+        aynı servisle koordinata çevrilir. Varış adresi ekrandan veya Excel'deki
+        `ayarlar` sayfasından alınır. Başlangıç filosu 18, 30 ve 46 kişilik araçlardan
+        sistem tarafından oluşturulur; Excel'den araç bilgisi okunmaz. Güvenilir
+        biçimde eşleştirilemeyen personel adresleri atlanır ve sonuçta uyarı olarak
+        gösterilir; geçerli adreslerin tamamı işlenmeye devam eder.
 
         Yüklenen dosya diske yazılmaz; yalnızca istek içinde ayrıştırılır
         (bkz. `docs/kararlar.md`).
@@ -69,7 +70,7 @@ paths:
           multipart/form-data:
             schema:
               type: object
-              required: [file, name, arrivalDeadline, workplaceAddress]
+              required: [file, name]
               properties:
                 file:
                   type: string
@@ -77,12 +78,9 @@ paths:
                   description: '.xlsx dosyası; en fazla 5 MB.'
                 name: { type: string }
                 arrivalDeadline: { type: string, format: time, example: '08:30:00' }
-                workplaceAddress:
+                destinationAddress:
                   type: string
-                  minLength: 1
                   example: 'Kızılırmak Mah. 1443. Cad. No:5, Çankaya/Ankara'
-                vehicleCount: { type: integer, minimum: 1 }
-                vehicleCapacity: { type: integer, minimum: 1 }
       responses:
         '202':
           description: Senaryo kabul edildi ve kuyruğa alındı.
@@ -119,38 +117,6 @@ paths:
                 $ref: '#/components/schemas/ScenarioResult'
         '404':
           description: Senaryo bulunamadı.
-  /api/v1/scenarios/{scenarioId}/reoptimize:
-    post:
-      summary: Kayıtlı duraklarla rotayı yeniden hesaplar.
-      description: |
-        Durak üretimi yeniden çalıştırılmaz; kalıcılaştırılmış duraklar kullanılır.
-        Gövdede araç listesi verilirse senaryonun araçları bu listeyle değiştirilir.
-      parameters:
-        - $ref: '#/components/parameters/ScenarioId'
-      requestBody:
-        required: false
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                vehicles:
-                  type: array
-                  minItems: 1
-                  items: { $ref: '#/components/schemas/Vehicle' }
-      responses:
-        '202':
-          description: Yeniden hesaplama kuyruğa alındı.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ScenarioAccepted'
-        '400':
-          $ref: '#/components/responses/ValidationFailed'
-        '404':
-          description: Senaryo bulunamadı.
-        '409':
-          description: Senaryonun kayıtlı durağı yok; önce tam optimizasyon çalışmalıdır.
   /api/v1/stops/generate:
     post:
       summary: Optimizasyon servisinin durak üretim sözleşmesi.
@@ -211,13 +177,19 @@ components:
         location: { $ref: '#/components/schemas/Coordinate' }
     Vehicle:
       type: object
-      required: [id, capacity, start]
+      required: [id, capacity, reservedSeats, effectiveCapacity]
       properties:
         id:
           type: string
-          description: Excel içe aktarımında aracın plakası.
-        capacity: { type: integer, minimum: 1 }
-        start: { $ref: '#/components/schemas/Coordinate' }
+          description: Servisin sistem içindeki benzersiz adı.
+        capacity: { type: integer, enum: [18, 30, 46] }
+        start:
+          oneOf:
+            - $ref: '#/components/schemas/Coordinate'
+            - type: 'null'
+        plate: { type: [string, 'null'] }
+        reservedSeats: { type: integer, minimum: 0 }
+        effectiveCapacity: { type: integer, minimum: 1, readOnly: true }
     ScenarioInput:
       type: object
       required: [name, direction, workplace, arrivalDeadline, persons, vehicles]
@@ -236,6 +208,10 @@ components:
           minItems: 1
           description: Kullanıcı tarafından belirlenen araç listesi; sabit üst sınır yoktur.
           items: { $ref: '#/components/schemas/Vehicle' }
+        importWarnings:
+          type: array
+          description: Excel içe aktarımında atlanan adreslere ilişkin kalıcı uyarılar.
+          items: { type: string }
     ScenarioAccepted:
       type: object
       required: [id, status]
@@ -380,7 +356,7 @@ components:
           description: Varış saati `arrivalDeadline` değerini aşmıyorsa true.
     ScenarioResult:
       type: object
-      required: [id, name, status, workplace, vehicles, stops, routes, unassignedPersonIds, deadlineSeconds]
+      required: [id, name, status, workplace, persons, vehicles, stops, routes, unassignedPersonIds, deadlineSeconds]
       properties:
         id: { type: string, format: uuid }
         name: { type: string }
@@ -390,9 +366,12 @@ components:
           description: '`arrivalDeadline` alanının saniye karşılığı; 08:30:00 = 30600.'
         workplace:
           $ref: '#/components/schemas/Coordinate'
+        persons:
+          type: array
+          items: { $ref: '#/components/schemas/Person' }
         vehicles:
           type: array
-          description: Araçların Excel'den gelen başlangıç konumları ve kapasiteleri.
+          description: Otomatik oluşturulan veya uzman tarafından düzenlenen araç filosu.
           items: { $ref: '#/components/schemas/Vehicle' }
         stops:
           type: array
@@ -414,7 +393,7 @@ components:
               id: { type: string }
               reason:
                 type: string
-                enum: [no_candidate_within_limit, no_route, stop_capacity_full, not_routed]
+                enum: [no_candidate_within_limit, no_route, stop_capacity_full, not_routed, manual_unassigned]
                 description: |
                   İlk üçü optimizasyon servisinden gelir. `not_routed` backend'e aittir ve
                   VROOM'un durağı hiçbir araca atayamadığı durumu gösterir.
@@ -455,7 +434,7 @@ components:
           description: Durakta geçen biniş süresi (saniye).
     VroomVehicle:
       type: object
-      required: [id, description, profile, start, end, capacity, time_window]
+      required: [id, description, profile, start, end, capacity, time_window, max_tasks]
       properties:
         id: { type: integer, minimum: 1 }
         description: { type: string, description: Senaryodaki araç kimliği. }
@@ -475,6 +454,10 @@ components:
             VROOM alan adı snake_case'tir. camelCase gönderilirse kısıt sessizce
             yok sayılır ve varış saati uygulanmaz.
           items: { type: integer, minimum: 0 }
+        max_tasks:
+          type: integer
+          minimum: 1
+          description: Araç rotasındaki azami durak sayısı; rota dengesini korur.
     VroomRequest:
       type: object
       required: [jobs, vehicles, options]

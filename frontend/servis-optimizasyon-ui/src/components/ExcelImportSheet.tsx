@@ -12,22 +12,18 @@ export function ExcelImportSheet({ onSubmit, disabled, isBusy, errorMessage }: E
   const [file, setFile] = useState<File | null>(null)
   const [name, setName] = useState('Excel senaryosu')
   const [arrivalDeadline, setArrivalDeadline] = useState('08:30:00')
-  const [workplaceAddress, setWorkplaceAddress] = useState('')
-  const [vehicleCount, setVehicleCount] = useState('')
-  const [vehicleCapacity, setVehicleCapacity] = useState('')
+  const [destinationAddress, setDestinationAddress] = useState('')
   const [templateError, setTemplateError] = useState('')
 
-  const canSubmit = !disabled && file !== null && workplaceAddress.trim() !== ''
+  const canSubmit = !disabled && file !== null
 
   function handleSubmit() {
-    if (!file || !workplaceAddress.trim()) return
+    if (!file) return
     onSubmit({
       file,
       name,
       arrivalDeadline,
-      workplaceAddress: workplaceAddress.trim(),
-      vehicleCount: vehicleCount === '' ? undefined : Number(vehicleCount),
-      vehicleCapacity: vehicleCapacity === '' ? undefined : Number(vehicleCapacity),
+      destinationAddress: destinationAddress.trim() || undefined,
     })
   }
 
@@ -57,35 +53,16 @@ export function ExcelImportSheet({ onSubmit, disabled, isBusy, errorMessage }: E
         />
       </label>
       <label className="op-field-wide">
-        <span>İşyeri adresi</span>
+        <span>Varış adresi <small>ekrandan veya Excel ayarlar sayfasından</small></span>
         <input
           type="text"
           placeholder="Örn. Kızılırmak Mah. 1443. Cad. No:5, Çankaya/Ankara"
-          value={workplaceAddress}
+          value={destinationAddress}
           disabled={isBusy}
-          onChange={(event) => setWorkplaceAddress(event.target.value)}
+          onChange={(event) => setDestinationAddress(event.target.value)}
         />
       </label>
-      <label>
-        <span>Araç sayısı <small>opsiyonel</small></span>
-        <input
-          type="number"
-          min="1"
-          value={vehicleCount}
-          disabled={isBusy}
-          onChange={(event) => setVehicleCount(event.target.value)}
-        />
-      </label>
-      <label>
-        <span>Araç kapasitesi <small>opsiyonel</small></span>
-        <input
-          type="number"
-          min="1"
-          value={vehicleCapacity}
-          disabled={isBusy}
-          onChange={(event) => setVehicleCapacity(event.target.value)}
-        />
-      </label>
+      <p className="op-field-wide op-drawer-note">Başlangıç filosu 18, 30 ve 46 kişilik araçlardan otomatik oluşturulur.</p>
       <label className="op-field-wide">
         <span>Excel dosyası <small>.xlsx</small></span>
         <input

@@ -11,9 +11,11 @@ type VehicleListPanelProps = {
   selectedVehicleId: string | null
   onSelect: (id: string) => void
   unassignedPersonCount: number
+  onOpenUnassigned: () => void
+  onAddVehicle: () => void
 }
 
-export function VehicleListPanel({ vehicles, selectedVehicleId, onSelect, unassignedPersonCount }: VehicleListPanelProps) {
+export function VehicleListPanel({ vehicles, selectedVehicleId, onSelect, unassignedPersonCount, onOpenUnassigned, onAddVehicle }: VehicleListPanelProps) {
   return (
     <div className="op-vehicle-panel op-scroll" aria-label="Araç filosu">
       <div className="op-vehicle-panel-header">
@@ -21,10 +23,10 @@ export function VehicleListPanel({ vehicles, selectedVehicleId, onSelect, unassi
           <p className="op-kicker">Filo</p>
           <h3>Araçlar</h3>
         </div>
-        <strong className="op-badge">{vehicles.length} araç</strong>
+        <button className="op-badge op-badge-button" onClick={onAddVehicle}>+ Araç</button>
       </div>
       {unassignedPersonCount > 0 && (
-        <p className="op-vehicle-panel-warning">{unassignedPersonCount} personel atanamadı</p>
+        <button className="op-vehicle-panel-warning op-warning-button" onClick={onOpenUnassigned}>{unassignedPersonCount} yolcu servis atanmamış · aç</button>
       )}
       <ul className="op-vehicle-list">
         {vehicles.map((vehicle) => {

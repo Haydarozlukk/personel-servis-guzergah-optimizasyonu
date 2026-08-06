@@ -114,6 +114,31 @@ public class ScenarioOrchestratorTests
     }
 
     [Fact]
+    public async Task VroomRequestLimitsStopsPerVehicleForBalancedRoutes()
+    {
+        var (orchestrator, vroom) = Build(SingleStopResponse, VroomRouteResponse());
+
+        await orchestrator.OptimizeAsync(Input(), CancellationToken.None);
+
+        Assert.Contains("\"max_tasks\":1", vroom.LastRequestBody);
+        Assert.DoesNotContain("maxTasks", vroom.LastRequestBody);
+    }
+
+    [Fact]
+    public async Task ImportWarningsArePreservedInCompletedScenario()
+    {
+        var (orchestrator, _) = Build(SingleStopResponse, VroomRouteResponse());
+        var input = Input() with
+        {
+            ImportWarnings = ["Excel içe aktarımı: 1 adres çıkarıldı. 3. satır (id: 445)."],
+        };
+
+        var computation = await orchestrator.OptimizeAsync(input, CancellationToken.None);
+
+        Assert.Contains(input.ImportWarnings[0], computation.Warnings);
+    }
+
+    [Fact]
     public async Task VroomJobCarriesBoardingServiceTime()
     {
         var (orchestrator, vroom) = Build(SingleStopResponse, VroomRouteResponse());

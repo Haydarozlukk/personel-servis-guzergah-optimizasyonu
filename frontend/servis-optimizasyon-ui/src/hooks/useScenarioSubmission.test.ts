@@ -1,7 +1,7 @@
 import { act, renderHook, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useScenarioSubmission } from './useScenarioSubmission'
-import type { ExcelImportForm, NewPersonInput } from '../lib/api'
+import type { ExcelImportForm } from '../lib/api'
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -30,7 +30,7 @@ describe('useScenarioSubmission', () => {
       file: new File(['id,adres'], 'senaryo.xlsx'),
       name: 'Excel senaryosu',
       arrivalDeadline: '08:30:00',
-      workplaceAddress: 'Kızılırmak Mah. 1443. Cad. No:5, Çankaya/Ankara',
+      destinationAddress: 'Kızılırmak Mah. 1443. Cad. No:5, Çankaya/Ankara',
     }
     const fetchMock = vi.mocked(fetch)
     fetchMock
@@ -84,7 +84,7 @@ describe('useScenarioSubmission', () => {
         file: new File(['id,adres'], 'senaryo.xlsx'),
         name: 'Excel senaryosu',
         arrivalDeadline: '08:30:00',
-        workplaceAddress: 'Kızılırmak Mah. 1443. Cad. No:5, Çankaya/Ankara',
+        destinationAddress: 'Kızılırmak Mah. 1443. Cad. No:5, Çankaya/Ankara',
       })
     })
 
@@ -103,7 +103,7 @@ describe('useScenarioSubmission', () => {
         file: new File(['id,adres'], 'senaryo.xlsx'),
         name: 'Excel senaryosu',
         arrivalDeadline: '08:30:00',
-        workplaceAddress: 'Kızılırmak Mah. 1443. Cad. No:5, Çankaya/Ankara',
+        destinationAddress: 'Kızılırmak Mah. 1443. Cad. No:5, Çankaya/Ankara',
       })
     })
 
@@ -111,32 +111,4 @@ describe('useScenarioSubmission', () => {
     expect(result.current.errorMessage).toBe('Failed to fetch')
   })
 
-  it('adds new persons to an existing scenario and reoptimizes', async () => {
-    const persons: NewPersonInput[] = [{ firstName: 'Ada', lastName: 'Lovelace', location: [32.86, 39.93] }]
-    const fetchMock = vi.mocked(fetch)
-    fetchMock
-      .mockResolvedValueOnce(jsonResponse({ id: 'scenario-1', status: 'queued' }, 202))
-      .mockResolvedValueOnce(
-        jsonResponse({
-          id: 'scenario-1',
-          name: 'Excel senaryosu',
-          status: 'completed',
-          deadlineSeconds: 30600,
-          stops: [],
-          routes: [],
-          unassignedPersonIds: [],
-        }),
-      )
-
-    const { result } = renderHook(() => useScenarioSubmission())
-
-    act(() => {
-      void result.current.submitNewPersons('scenario-1', persons)
-    })
-
-    await waitFor(() => expect(result.current.scenarioState).toBe('completed'))
-    const [url, options] = fetchMock.mock.calls[0]
-    expect(url).toBe('http://localhost:8080/api/v1/scenarios/scenario-1/persons')
-    expect(JSON.parse(options!.body as string)).toEqual({ persons })
-  })
 })

@@ -1,15 +1,6 @@
 using System.Threading.Channels;
 
-public enum ScenarioJobKind
-{
-    /// <summary>Durak üretimi + rotalama.</summary>
-    FullOptimization,
-
-    /// <summary>Kayıtlı duraklarla yalnızca rotalama.</summary>
-    RouteOnly,
-}
-
-public sealed record ScenarioJob(Guid ScenarioId, ScenarioJobKind Kind);
+public sealed record ScenarioJob(Guid ScenarioId);
 
 /// <summary>
 /// Senaryo işlerinin arka plan kuyruğu. İstek/cevap döngüsü optimizasyonu
@@ -64,11 +55,7 @@ public sealed class ScenarioWorker(
 
             await store.SetStatusAsync(job.ScenarioId, ScenarioStatus.Running, null, cancellationToken);
 
-            var computation = job.Kind switch
-            {
-                ScenarioJobKind.RouteOnly => await RouteOnlyAsync(store, orchestrator, job.ScenarioId, input, cancellationToken),
-                _ => await orchestrator.OptimizeAsync(input, cancellationToken),
-            };
+            var computation = await orchestrator.OptimizeAsync(input, cancellationToken);
 
             await store.SaveComputationAsync(job.ScenarioId, computation, cancellationToken);
             logger.LogInformation("Senaryo tamamlandı.");
@@ -97,44 +84,4 @@ public sealed class ScenarioWorker(
         }
     }
 
-    private static async Task<ScenarioComputation> RouteOnlyAsync(
-        IScenarioStore store,
-        ScenarioOrchestrator orchestrator,
-        Guid scenarioId,
-        ScenarioInput input,
-        CancellationToken cancellationToken)
-    {
-        var stops = await store.TryGetStopsAsync(scenarioId, cancellationToken)
-            ?? throw new InvalidOperationException("Yeniden hesaplama için kayıtlı durak bulunamadı.");
-
-        var assignedPersonIds = stops
-            .SelectMany(stop => stop.AssignedPersonIds)
-            .ToHashSet(StringComparer.Ordinal);
-
-        // Hiçbir durağa atanmamış kişilerin gerekçesi durak üretiminde belirlendi
-        // ve kayıtlı; burada yeniden hesaplanmaz, depodan okunur.
-        var storedReasons = await store.TryGetUnassignedPersonsAsync(scenarioId, cancellationToken);
-        var reasonById = storedReasons.ToDictionary(
-            person => person.Id,
-            person => person.Reason,
-            StringComparer.Ordinal);
-
-        var previouslyUnassigned = input.Persons
-            .Select(person => person.Id)
-            .Where(personId => !assignedPersonIds.Contains(personId))
-            .Order(StringComparer.Ordinal)
-            .Select(personId => new UnassignedPersonResult(
-                personId,
-                reasonById.TryGetValue(personId, out var reason) ? reason : "no_candidate_within_limit"))
-            .ToList();
-
-        // Yeniden rotalamada durak üretimi çalışmadığı için özet null geçilir;
-        // depodaki kayıtlı özet korunur.
-        return await orchestrator.RouteAsync(
-            input,
-            stops,
-            previouslyUnassigned,
-            stopGenerationSummary: null,
-            cancellationToken);
-    }
 }

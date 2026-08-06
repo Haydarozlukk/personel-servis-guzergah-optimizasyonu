@@ -111,13 +111,38 @@ public class GeocodingTests
                 PublicBaseUrl = "https://nominatim.openstreetmap.org",
             });
 
-        var result = await service.GeocodeAsync("toki", CancellationToken.None);
+        var result = await service.GeocodeAsync("TOKİ Bilkent Ankara", CancellationToken.None);
 
         Assert.NotNull(result);
         Assert.Equal("nominatim.openstreetmap.org", handler.LastRequestUri!.Host);
         Assert.Contains("bounded=1", handler.LastRequestUri.Query);
         Assert.Contains("viewbox=", handler.LastRequestUri.Query);
         Assert.Equal(1, handler.CallCount);
+    }
+
+    [Fact]
+    public async Task WrongStreetCandidateIsSkippedInFavorOfPlausibleCandidate()
+    {
+        var handler = new StubHandler(
+            """
+            [
+              {"lon":"32.8100","lat":"39.9800","display_name":"1743. Sokak, Beytepe, Ankara"},
+              {"lon":"32.7200","lat":"39.8900","display_name":"1816. Sokak, Beytepe, Ankara"}
+            ]
+            """);
+        var client = new HttpClient(handler) { BaseAddress = new Uri("http://geocoding.local/") };
+        var service = new NominatimGeocodingService(
+            client,
+            new GeocodingOptions { BaseUrl = "http://geocoding.local" });
+
+        var result = await service.GeocodeAsync(
+            "Beytepe Mahallesi 1816. Sokak Ankara",
+            CancellationToken.None);
+
+        Assert.NotNull(result);
+        Assert.Equal(32.7200, result.Longitude, 4);
+        Assert.Contains("1816", result.DisplayName);
+        Assert.Contains("limit=5", handler.LastRequestUri!.Query);
     }
 
     private sealed class StubHandler(params string[] responseBodies) : HttpMessageHandler

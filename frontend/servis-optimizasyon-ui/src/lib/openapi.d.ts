@@ -139,11 +139,12 @@ export interface paths {
          * Excel dosyasından senaryo oluşturur.
          * @description `personel` sayfası zorunludur; başlık satırından sonra `id` ve `adres`
          *     sütunları okunur. Adresler backend tarafından yapılandırılmış, kurum içi
-         *     Nominatim uyumlu servisle WGS84 koordinatına çevrilir. İşyeri adresi de
-         *     aynı servisle koordinata çevrilir. `araclar` sayfası
-         *     varsa `id`, `kapasite`, `boylam`, `enlem`
-         *     sütunları okunur; yoksa `vehicleCount` ve `vehicleCapacity` alanları zorunludur
-         *     ve araçlar işyerinden başlatılır.
+         *     Nominatim uyumlu servisle WGS84 koordinatına çevrilir. Dinamik varış adresi de
+         *     aynı servisle koordinata çevrilir. Varış adresi ekrandan veya Excel'deki
+         *     `ayarlar` sayfasından alınır. Başlangıç filosu 18, 30 ve 46 kişilik araçlardan
+         *     sistem tarafından oluşturulur; Excel'den araç bilgisi okunmaz. Güvenilir
+         *     biçimde eşleştirilemeyen personel adresleri atlanır ve sonuçta uyarı olarak
+         *     gösterilir; geçerli adreslerin tamamı işlenmeye devam eder.
          *
          *     Yüklenen dosya diske yazılmaz; yalnızca istek içinde ayrıştırılır
          *     (bkz. `docs/kararlar.md`).
@@ -168,11 +169,9 @@ export interface paths {
                          * Format: time
                          * @example 08:30:00
                          */
-                        arrivalDeadline: string;
+                        arrivalDeadline?: string;
                         /** @example Kızılırmak Mah. 1443. Cad. No:5, Çankaya/Ankara */
-                        workplaceAddress: string;
-                        vehicleCount?: number;
-                        vehicleCapacity?: number;
+                        destinationAddress?: string;
                     };
                 };
             };
@@ -290,69 +289,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/scenarios/{scenarioId}/reoptimize": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Kayıtlı duraklarla rotayı yeniden hesaplar.
-         * @description Durak üretimi yeniden çalıştırılmaz; kalıcılaştırılmış duraklar kullanılır.
-         *     Gövdede araç listesi verilirse senaryonun araçları bu listeyle değiştirilir.
-         */
-        post: {
-            parameters: {
-                query?: never;
-                header?: never;
-                path: {
-                    scenarioId: components["parameters"]["ScenarioId"];
-                };
-                cookie?: never;
-            };
-            requestBody?: {
-                content: {
-                    "application/json": {
-                        vehicles?: components["schemas"]["Vehicle"][];
-                    };
-                };
-            };
-            responses: {
-                /** @description Yeniden hesaplama kuyruğa alındı. */
-                202: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["ScenarioAccepted"];
-                    };
-                };
-                400: components["responses"]["ValidationFailed"];
-                /** @description Senaryo bulunamadı. */
-                404: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content?: never;
-                };
-                /** @description Senaryonun kayıtlı durağı yok; önce tam optimizasyon çalışmalıdır. */
-                409: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content?: never;
-                };
-            };
-        };
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/v1/stops/generate": {
         parameters: {
             query?: never;
@@ -419,10 +355,14 @@ export interface components {
             location: components["schemas"]["Coordinate"];
         };
         Vehicle: {
-            /** @description Excel içe aktarımında aracın plakası. */
+            /** @description Servisin sistem içindeki benzersiz adı. */
             id: string;
-            capacity: number;
-            start: components["schemas"]["Coordinate"];
+            /** @enum {integer} */
+            capacity: 18 | 30 | 46;
+            start?: components["schemas"]["Coordinate"] | null;
+            plate?: string | null;
+            reservedSeats: number;
+            readonly effectiveCapacity: number;
         };
         ScenarioInput: {
             name: string;
@@ -438,6 +378,8 @@ export interface components {
             persons: components["schemas"]["Person"][];
             /** @description Kullanıcı tarafından belirlenen araç listesi; sabit üst sınır yoktur. */
             vehicles: components["schemas"]["Vehicle"][];
+            /** @description Excel içe aktarımında atlanan adreslere ilişkin kalıcı uyarılar. */
+            importWarnings?: string[];
         };
         ScenarioAccepted: {
             /** Format: uuid */
@@ -554,7 +496,8 @@ export interface components {
             /** @description `arrivalDeadline` alanının saniye karşılığı; 08:30:00 = 30600. */
             deadlineSeconds: number;
             workplace: components["schemas"]["Coordinate"];
-            /** @description Araçların Excel'den gelen başlangıç konumları ve kapasiteleri. */
+            persons: components["schemas"]["Person"][];
+            /** @description Otomatik oluşturulan veya uzman tarafından düzenlenen araç filosu. */
             vehicles: components["schemas"]["Vehicle"][];
             /** @description Rotalarda geçen durakların konumu ve personel ataması. */
             stops: components["schemas"]["Stop"][];
@@ -568,7 +511,7 @@ export interface components {
                  *     VROOM'un durağı hiçbir araca atayamadığı durumu gösterir.
                  * @enum {string}
                  */
-                reason: "no_candidate_within_limit" | "no_route" | "stop_capacity_full" | "not_routed";
+                reason: "no_candidate_within_limit" | "no_route" | "stop_capacity_full" | "not_routed" | "manual_unassigned";
             }[];
             /** @description Tüm rotalar için varış saati kısıtı sağlandıysa true. */
             deadlineMet?: boolean | null;
@@ -609,6 +552,8 @@ export interface components {
              *     yok sayılır ve varış saati uygulanmaz.
              */
             time_window: number[];
+            /** @description Araç rotasındaki azami durak sayısı; rota dengesini korur. */
+            max_tasks: number;
         };
         VroomRequest: {
             jobs: components["schemas"]["VroomJob"][];
