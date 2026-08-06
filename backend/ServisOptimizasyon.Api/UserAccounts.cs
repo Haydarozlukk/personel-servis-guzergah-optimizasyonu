@@ -27,6 +27,7 @@ public sealed record AppUser(
     DateTimeOffset UpdatedAt);
 
 public sealed record RegisterRequest(string Email, string DisplayName, string Password);
+public sealed record AdminCreateUserRequest(string Email, string DisplayName, string Password, string? Role);
 public sealed record LoginRequest(string Email, string Password);
 public sealed record UserResult(
     Guid Id,
@@ -43,6 +44,7 @@ public interface IUserStore
     Task<AppUser?> FindByEmailAsync(string email, CancellationToken cancellationToken);
     Task<List<AppUser>> ListAsync(CancellationToken cancellationToken);
     Task<bool> CreateAsync(AppUser user, CancellationToken cancellationToken);
+    Task<bool> UpsertUserAsync(AppUser user, CancellationToken cancellationToken);
     Task<bool> ApproveAsync(Guid id, CancellationToken cancellationToken);
     Task<bool> SoftDeleteAsync(Guid id, CancellationToken cancellationToken);
 }
@@ -119,14 +121,40 @@ public sealed class PostgresUserStore(NpgsqlDataSource dataSource) : IUserStore
         command.Parameters.AddWithValue("status", user.Status);
         command.Parameters.AddWithValue("created", user.CreatedAt);
         command.Parameters.AddWithValue("updated", user.UpdatedAt);
-        return await command.ExecuteNonQueryAsync(cancellationToken) == 1;
+        return await command.ExecuteNonQueryAsync(cancellationToken) > 0;
+    }
+
+    public async Task<bool> UpsertUserAsync(AppUser user, CancellationToken cancellationToken)
+    {
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        await using var command = new NpgsqlCommand(
+            """
+            INSERT INTO app_users
+                (id, email, normalized_email, display_name, password_hash, role, status, created_at, updated_at)
+            VALUES (@id, @email, @normalized, @name, @hash, @role, @status, @created, @updated)
+            ON CONFLICT (normalized_email) DO UPDATE SET
+                password_hash = EXCLUDED.password_hash,
+                role = EXCLUDED.role,
+                status = EXCLUDED.status,
+                updated_at = now()
+            """, connection);
+        command.Parameters.AddWithValue("id", user.Id);
+        command.Parameters.AddWithValue("email", user.Email.Trim());
+        command.Parameters.AddWithValue("normalized", Normalize(user.Email));
+        command.Parameters.AddWithValue("name", user.DisplayName.Trim());
+        command.Parameters.AddWithValue("hash", user.PasswordHash);
+        command.Parameters.AddWithValue("role", user.Role);
+        command.Parameters.AddWithValue("status", user.Status);
+        command.Parameters.AddWithValue("created", user.CreatedAt);
+        command.Parameters.AddWithValue("updated", user.UpdatedAt);
+        return await command.ExecuteNonQueryAsync(cancellationToken) > 0;
     }
 
     public Task<bool> ApproveAsync(Guid id, CancellationToken cancellationToken) =>
         UpdateStatusAsync(id, UserStatuses.Approved, excludeAdmin: false, cancellationToken);
 
     public Task<bool> SoftDeleteAsync(Guid id, CancellationToken cancellationToken) =>
-        UpdateStatusAsync(id, UserStatuses.Deleted, excludeAdmin: true, cancellationToken);
+        UpdateStatusAsync(id, UserStatuses.Deleted, excludeAdmin: false, cancellationToken);
 
     private async Task<bool> UpdateStatusAsync(
         Guid id,
@@ -162,8 +190,13 @@ public sealed class InMemoryUserStore : IUserStore
         Task.FromResult(_users.Values.Where(user => user.Status != UserStatuses.Deleted).OrderBy(user => user.CreatedAt).ToList());
     public Task<bool> CreateAsync(AppUser user, CancellationToken cancellationToken) =>
         Task.FromResult(_users.TryAdd(user.Email.Trim(), user));
+    public Task<bool> UpsertUserAsync(AppUser user, CancellationToken cancellationToken)
+    {
+        _users[user.Email.Trim()] = user;
+        return Task.FromResult(true);
+    }
     public Task<bool> ApproveAsync(Guid id, CancellationToken cancellationToken) => Update(id, UserStatuses.Approved, false);
-    public Task<bool> SoftDeleteAsync(Guid id, CancellationToken cancellationToken) => Update(id, UserStatuses.Deleted, true);
+    public Task<bool> SoftDeleteAsync(Guid id, CancellationToken cancellationToken) => Update(id, UserStatuses.Deleted, false);
 
     private Task<bool> Update(Guid id, string status, bool excludeAdmin)
     {

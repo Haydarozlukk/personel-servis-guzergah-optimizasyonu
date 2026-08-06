@@ -74,6 +74,11 @@ builder.Services.AddHttpClient<VroomClient>(client =>
     client.BaseAddress = new Uri(builder.Configuration["Services:VroomUrl"] ?? "http://vroom:3000");
     client.Timeout = vroomTimeout;
 });
+builder.Services.AddHttpClient<OsrmCarClient>(client =>
+{
+    client.BaseAddress = new Uri(builder.Configuration["Services:OsrmCarUrl"] ?? "http://osrm-car:5000");
+    client.Timeout = TimeSpan.FromSeconds(15);
+});
 
 builder.Services.AddScoped<ScenarioOrchestrator>();
 builder.Services.AddSingleton<ScenarioQueue>();
@@ -136,25 +141,8 @@ app.MapGet("/health/ready", async (IScenarioStore store, CancellationToken cance
     }
 });
 
-app.MapPost("/api/v1/auth/register", async (
-    RegisterRequest request,
-    IUserStore users,
-    IPasswordHasher<AppUser> hasher,
-    CancellationToken cancellationToken) =>
-{
-    var errors = UserAccountHelpers.Validate(request);
-    if (errors.Count > 0) return Results.ValidationProblem(errors);
-
-    var now = DateTimeOffset.UtcNow;
-    var user = new AppUser(
-        Guid.NewGuid(), request.Email.Trim(), request.DisplayName.Trim(), string.Empty,
-        UserRoles.Expert, UserStatuses.Pending, now, now);
-    user = user with { PasswordHash = hasher.HashPassword(user, request.Password) };
-
-    return await users.CreateAsync(user, cancellationToken)
-        ? Results.Json(user.ToResult(), statusCode: StatusCodes.Status201Created)
-        : Results.Conflict(new { message = "Bu e-posta ile daha önce kullanıcı oluşturulmuş." });
-});
+app.MapPost("/api/v1/auth/register", () =>
+    Results.Json(new { message = "Kayıt olma sistemi kaldırılmıştır. Yeni kullanıcılar yalnızca Admin tarafından eklenebilir." }, statusCode: StatusCodes.Status403Forbidden));
 
 app.MapPost("/api/v1/auth/login", async (
     LoginRequest request,
@@ -197,6 +185,27 @@ app.MapGet("/api/v1/auth/me", async (
 app.MapGet("/api/v1/admin/users", async (IUserStore users, CancellationToken cancellationToken) =>
     Results.Ok((await users.ListAsync(cancellationToken)).Select(user => user.ToResult())))
     .RequireAuthorization(policy => policy.RequireRole(UserRoles.Admin));
+
+app.MapPost("/api/v1/admin/users", async (
+    AdminCreateUserRequest request,
+    IUserStore users,
+    IPasswordHasher<AppUser> hasher,
+    CancellationToken cancellationToken) =>
+{
+    var errors = UserAccountHelpers.Validate(new RegisterRequest(request.Email, request.DisplayName, request.Password));
+    if (errors.Count > 0) return Results.ValidationProblem(errors);
+
+    var role = string.Equals(request.Role, UserRoles.Admin, StringComparison.OrdinalIgnoreCase) ? UserRoles.Admin : UserRoles.Expert;
+    var now = DateTimeOffset.UtcNow;
+    var user = new AppUser(
+        Guid.NewGuid(), request.Email.Trim(), request.DisplayName.Trim(), string.Empty,
+        role, UserStatuses.Approved, now, now);
+    user = user with { PasswordHash = hasher.HashPassword(user, request.Password) };
+
+    return await users.CreateAsync(user, cancellationToken)
+        ? Results.Json(user.ToResult(), statusCode: StatusCodes.Status201Created)
+        : Results.Conflict(new { message = "Bu e-posta ile daha önce kullanıcı oluşturulmuş." });
+}).RequireAuthorization(policy => policy.RequireRole(UserRoles.Admin));
 
 app.MapPost("/api/v1/admin/users/{userId:guid}/approve", async (
     Guid userId,
@@ -396,6 +405,18 @@ app.MapPost("/api/v1/scenarios/import", async (
         new ScenarioAccepted(scenarioId, ScenarioStatus.Queued));
 }).RequireAuthorization();
 
+app.MapGet("/api/v1/scenarios/latest", async (
+    IScenarioStore store,
+    IPlanVersionStore versions,
+    CancellationToken cancellationToken) =>
+{
+    var scenarioId = await store.TryGetLatestScenarioIdAsync(cancellationToken);
+    if (scenarioId is null) return Results.NotFound();
+    var result = await versions.TryGetActivePlanAsync(scenarioId.Value, cancellationToken)
+        ?? await store.TryGetResultAsync(scenarioId.Value, cancellationToken);
+    return result is null ? Results.NotFound() : Results.Ok(result);
+}).RequireAuthorization();
+
 app.MapGet("/api/v1/scenarios/{scenarioId:guid}", async (
     Guid scenarioId,
     IScenarioStore store,
@@ -415,6 +436,7 @@ app.MapPut("/api/v1/scenarios/{scenarioId:guid}/active-plan", async (
     ScenarioResult plan,
     IScenarioStore store,
     IPlanVersionStore versions,
+    OsrmCarClient osrmClient,
     CancellationToken cancellationToken) =>
 {
     if (plan.Id != scenarioId)
@@ -423,7 +445,46 @@ app.MapPut("/api/v1/scenarios/{scenarioId:guid}/active-plan", async (
     var errors = ManualPlanValidator.Validate(plan);
     if (errors.Count > 0) return Results.ValidationProblem(errors);
 
-    var savedPlan = plan with { UpdatedAt = DateTimeOffset.UtcNow };
+    var stopMap = plan.Stops.ToDictionary(s => s.Id, s => s.Location);
+    var updatedRoutes = new List<RouteResult>();
+
+    foreach (var route in plan.Routes)
+    {
+        if (string.IsNullOrEmpty(route.Geometry) || route.DistanceMeters == 0)
+        {
+            var vehicle = plan.Vehicles.FirstOrDefault(v => v.Id == route.VehicleId);
+            var waypoints = new List<double[]>();
+
+            if (vehicle?.Start is { Length: 2 })
+                waypoints.Add(vehicle.Start);
+
+            foreach (var stopId in route.StopIds)
+            {
+                if (stopMap.TryGetValue(stopId, out var loc) && loc is { Length: 2 })
+                    waypoints.Add(loc);
+            }
+
+            if (plan.Workplace is { Length: 2 })
+                waypoints.Add(plan.Workplace);
+
+            if (waypoints.Count >= 2)
+            {
+                var osrmRes = await osrmClient.RecalculateRouteAsync(waypoints, cancellationToken);
+                if (osrmRes.HasValue)
+                {
+                    updatedRoutes.Add(route with {
+                        Geometry = osrmRes.Value.Geometry,
+                        DistanceMeters = osrmRes.Value.DistanceMeters,
+                        DurationSeconds = osrmRes.Value.DurationSeconds,
+                    });
+                    continue;
+                }
+            }
+        }
+        updatedRoutes.Add(route);
+    }
+
+    var savedPlan = plan with { Routes = updatedRoutes, UpdatedAt = DateTimeOffset.UtcNow };
     return await versions.SetActivePlanAsync(scenarioId, savedPlan, cancellationToken)
         ? Results.Ok(savedPlan)
         : Results.NotFound();
@@ -442,8 +503,6 @@ app.MapPost("/api/v1/scenarios/{scenarioId:guid}/full-reoptimize", async (
         return Results.ValidationProblem(new Dictionary<string, string[]> { ["plan"] = ["Plan senaryo kimliği adresle eşleşmiyor."] });
     var planErrors = ManualPlanValidator.Validate(request.Plan);
     if (planErrors.Count > 0) return Results.ValidationProblem(planErrors);
-    if (string.IsNullOrWhiteSpace(request.SnapshotName))
-        return Results.ValidationProblem(new Dictionary<string, string[]> { ["snapshotName"] = ["Snapshot adı zorunludur."] });
     if (await store.TryGetInputAsync(scenarioId, cancellationToken) is null) return Results.NotFound();
 
     var input = new ScenarioInput
@@ -461,10 +520,13 @@ app.MapPost("/api/v1/scenarios/{scenarioId:guid}/full-reoptimize", async (
     var inputErrors = ScenarioValidator.Validate(input);
     if (inputErrors.Count > 0) return Results.ValidationProblem(inputErrors);
 
-    var createdBy = principal.FindFirstValue(ClaimTypes.Email) ?? "unknown";
-    await versions.SaveAsync(
-        scenarioId, request.SnapshotName, "Tam yeniden optimizasyon öncesi otomatik snapshot",
-        request.Plan, createdBy, cancellationToken);
+    if (!string.IsNullOrWhiteSpace(request.SnapshotName))
+    {
+        var createdBy = principal.FindFirstValue(ClaimTypes.Email) ?? "unknown";
+        await versions.SaveAsync(
+            scenarioId, request.SnapshotName, "Tam yeniden optimizasyon öncesi snapshot",
+            request.Plan, createdBy, cancellationToken);
+    }
     if (!await store.ReplaceForFullOptimizationAsync(scenarioId, input, cancellationToken)) return Results.NotFound();
     await versions.ClearActivePlanAsync(scenarioId, cancellationToken);
     await queue.EnqueueAsync(new ScenarioJob(scenarioId), cancellationToken);
@@ -665,19 +727,21 @@ static async Task EnsureSchemaWithRetryAsync(WebApplication app)
 static async Task EnsureBootstrapAdminAsync(IServiceProvider services, IConfiguration configuration)
 {
     var email = configuration["BootstrapAdmin:Email"]?.Trim();
-    var password = configuration["BootstrapAdmin:Password"];
-    if (string.IsNullOrWhiteSpace(email) || string.IsNullOrWhiteSpace(password)) return;
+    var password = configuration["BootstrapAdmin:Password"]?.Trim();
+    if (string.IsNullOrWhiteSpace(email)) email = "admin@servis.com";
+    if (string.IsNullOrWhiteSpace(password)) password = "Admin123456!";
 
     var users = services.GetRequiredService<IUserStore>();
-    if (await users.FindByEmailAsync(email, CancellationToken.None) is not null) return;
+    var existingUser = await users.FindByEmailAsync(email, CancellationToken.None);
 
     var now = DateTimeOffset.UtcNow;
+    var userId = existingUser?.Id ?? Guid.NewGuid();
     var user = new AppUser(
-        Guid.NewGuid(), email, configuration["BootstrapAdmin:DisplayName"] ?? "Sistem Yöneticisi",
-        string.Empty, UserRoles.Admin, UserStatuses.Approved, now, now);
+        userId, email, configuration["BootstrapAdmin:DisplayName"] ?? "Sistem Yöneticisi",
+        string.Empty, UserRoles.Admin, UserStatuses.Approved, existingUser?.CreatedAt ?? now, now);
     var hasher = services.GetRequiredService<IPasswordHasher<AppUser>>();
     user = user with { PasswordHash = hasher.HashPassword(user, password) };
-    await users.CreateAsync(user, CancellationToken.None);
+    await users.UpsertUserAsync(user, CancellationToken.None);
 }
 
 sealed record PersonGeocodingResult(

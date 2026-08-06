@@ -15,6 +15,8 @@ public interface IScenarioStore
 
     Task<ScenarioResult?> TryGetResultAsync(Guid scenarioId, CancellationToken cancellationToken);
 
+    Task<Guid?> TryGetLatestScenarioIdAsync(CancellationToken cancellationToken);
+
     Task SetStatusAsync(Guid scenarioId, string status, string? error, CancellationToken cancellationToken);
 
     Task SaveComputationAsync(Guid scenarioId, ScenarioComputation computation, CancellationToken cancellationToken);
@@ -342,6 +344,16 @@ public sealed class PostgresScenarioStore(NpgsqlDataSource dataSource) : IScenar
             error,
             createdAt,
             updatedAt);
+    }
+
+    public async Task<Guid?> TryGetLatestScenarioIdAsync(CancellationToken cancellationToken)
+    {
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        await using var command = new NpgsqlCommand(
+            "SELECT id FROM scenarios WHERE status = 'completed' ORDER BY updated_at DESC LIMIT 1",
+            connection);
+        var value = await command.ExecuteScalarAsync(cancellationToken);
+        return value is Guid id ? id : null;
     }
 
     private static async Task<List<UnassignedPersonResult>> ReadUnassignedPersonsAsync(
@@ -930,6 +942,16 @@ public sealed class InMemoryScenarioStore : IScenarioStore
             entry.Error,
             entry.CreatedAt,
             entry.UpdatedAt));
+    }
+
+    public Task<Guid?> TryGetLatestScenarioIdAsync(CancellationToken cancellationToken)
+    {
+        var latest = _entries
+            .Where(kv => kv.Value.Status == ScenarioStatus.Completed)
+            .OrderByDescending(kv => kv.Value.UpdatedAt)
+            .Select(kv => (Guid?)kv.Key)
+            .FirstOrDefault();
+        return Task.FromResult(latest);
     }
 
     public Task SetStatusAsync(Guid scenarioId, string status, string? error, CancellationToken cancellationToken)

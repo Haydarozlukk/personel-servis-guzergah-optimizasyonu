@@ -6,4 +6,5 @@ export type RouteLike = {
   durationSeconds: number
   load: number
   geometry: string
+  stopIds?: string[]
 }
