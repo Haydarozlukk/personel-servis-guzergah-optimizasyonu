@@ -14,6 +14,39 @@ export type StopGenerationSummary = components['schemas']['StopGenerationSummary
 export type UnassignedPerson = NonNullable<components['schemas']['ScenarioResult']['unassignedPersons']>[number]
 export type ScenarioResult = components['schemas']['ScenarioResult']
 
+export type CurrentUser = {
+  id: string
+  email: string
+  displayName: string
+  role: 'admin' | 'expert'
+  status: 'pending' | 'approved' | 'deleted'
+  createdAt: string
+  updatedAt: string
+}
+
+export type PlanVersion = {
+  id: string
+  name: string
+  description?: string | null
+  createdBy: string
+  createdAt: string
+  isActive: boolean
+}
+
+export type NearbyService = {
+  vehicleId: string
+  distanceMeters: number
+  nearestStopId?: string | null
+  load: number
+  effectiveCapacity: number
+}
+
+export type NearbyServicesResponse = {
+  address: string
+  location: Coordinate
+  services: NearbyService[]
+}
+
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8080'
 
 async function parseErrorMessage(response: Response): Promise<string> {
@@ -33,9 +66,7 @@ export type ExcelImportForm = {
   file: File
   name: string
   arrivalDeadline: string
-  workplaceAddress: string
-  vehicleCount?: number
-  vehicleCapacity?: number
+  destinationAddress?: string
 }
 
 export async function importScenarioFromExcel(form: ExcelImportForm): Promise<ScenarioAccepted> {
@@ -43,40 +74,16 @@ export async function importScenarioFromExcel(form: ExcelImportForm): Promise<Sc
   body.set('file', form.file)
   body.set('name', form.name)
   body.set('arrivalDeadline', form.arrivalDeadline)
-  body.set('workplaceAddress', form.workplaceAddress)
-  if (form.vehicleCount != null) body.set('vehicleCount', String(form.vehicleCount))
-  if (form.vehicleCapacity != null) body.set('vehicleCapacity', String(form.vehicleCapacity))
+  if (form.destinationAddress) body.set('destinationAddress', form.destinationAddress)
 
-  const response = await fetch(`${apiBaseUrl}/api/v1/scenarios/import`, { method: 'POST', body })
+  const response = await fetch(`${apiBaseUrl}/api/v1/scenarios/import`, { method: 'POST', body, credentials: 'include' })
   if (response.status === 413) throw new Error('Dosya boyutu sınırını aşıyor.')
   if (!response.ok) throw new Error(await parseErrorMessage(response))
   return response.json()
 }
 
-export type NewPersonInput = {
-  firstName: string
-  lastName: string
-  location: Coordinate
-}
-
-// Not yet backed by a real endpoint — see docs/efe.md "API talepleri" for the
-// proposed POST /api/v1/scenarios/{scenarioId}/persons contract. Wired up now
-// so the UI flow is ready the moment Haydar ships it.
-export async function addPersonsAndReoptimize(
-  scenarioId: string,
-  persons: NewPersonInput[],
-): Promise<ScenarioAccepted> {
-  const response = await fetch(`${apiBaseUrl}/api/v1/scenarios/${scenarioId}/persons`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ persons }),
-  })
-  if (!response.ok) throw new Error(await parseErrorMessage(response))
-  return response.json()
-}
-
 export async function downloadImportTemplate(): Promise<void> {
-  const response = await fetch(`${apiBaseUrl}/api/v1/scenarios/import/template`)
+  const response = await fetch(`${apiBaseUrl}/api/v1/scenarios/import/template`, { credentials: 'include' })
   if (!response.ok) throw new Error(await parseErrorMessage(response))
   const blob = await response.blob()
   const url = URL.createObjectURL(blob)
@@ -87,9 +94,143 @@ export async function downloadImportTemplate(): Promise<void> {
   URL.revokeObjectURL(url)
 }
 
-async function getScenarioResult(scenarioId: string): Promise<ScenarioResult | null> {
-  const response = await fetch(`${apiBaseUrl}/api/v1/scenarios/${scenarioId}`)
+export async function getScenarioResult(scenarioId: string): Promise<ScenarioResult | null> {
+  const response = await fetch(`${apiBaseUrl}/api/v1/scenarios/${scenarioId}`, { credentials: 'include' })
   if (response.status === 404) return null
+  if (!response.ok) throw new Error(await parseErrorMessage(response))
+  return response.json()
+}
+
+export async function getLatestScenario(): Promise<ScenarioResult | null> {
+  const response = await fetch(`${apiBaseUrl}/api/v1/scenarios/latest`, { credentials: 'include' })
+  if (response.status === 404) return null
+  if (!response.ok) throw new Error(await parseErrorMessage(response))
+  return response.json()
+}
+
+export async function getCurrentUser(): Promise<CurrentUser | null> {
+  const response = await fetch(`${apiBaseUrl}/api/v1/auth/me`, { credentials: 'include' })
+  if (response.status === 401) return null
+  if (!response.ok) throw new Error(await parseErrorMessage(response))
+  return response.json()
+}
+
+export async function login(email: string, password: string): Promise<CurrentUser> {
+  const response = await fetch(`${apiBaseUrl}/api/v1/auth/login`, {
+    method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, password }),
+  })
+  if (!response.ok) throw new Error(await parseErrorMessage(response))
+  return response.json()
+}
+
+export async function register(email: string, displayName: string, password: string): Promise<CurrentUser> {
+  const response = await fetch(`${apiBaseUrl}/api/v1/auth/register`, {
+    method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, displayName, password }),
+  })
+  if (!response.ok) throw new Error(await parseErrorMessage(response))
+  return response.json()
+}
+
+export async function logout(): Promise<void> {
+  const response = await fetch(`${apiBaseUrl}/api/v1/auth/logout`, { method: 'POST', credentials: 'include' })
+  if (!response.ok) throw new Error(await parseErrorMessage(response))
+}
+
+export async function listUsers(): Promise<CurrentUser[]> {
+  const response = await fetch(`${apiBaseUrl}/api/v1/admin/users`, { credentials: 'include' })
+  if (!response.ok) throw new Error(await parseErrorMessage(response))
+  return response.json()
+}
+
+export async function adminAddUser(email: string, displayName: string, password: string, role: string = 'expert'): Promise<CurrentUser> {
+  const response = await fetch(`${apiBaseUrl}/api/v1/admin/users`, {
+    method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, displayName, password, role }),
+  })
+  if (!response.ok) throw new Error(await parseErrorMessage(response))
+  return response.json()
+}
+
+export async function approveUser(id: string): Promise<void> {
+  const response = await fetch(`${apiBaseUrl}/api/v1/admin/users/${id}/approve`, { method: 'POST', credentials: 'include' })
+  if (!response.ok) throw new Error(await parseErrorMessage(response))
+}
+
+export async function deleteUser(id: string): Promise<void> {
+  const response = await fetch(`${apiBaseUrl}/api/v1/admin/users/${id}`, { method: 'DELETE', credentials: 'include' })
+  if (!response.ok) throw new Error(await parseErrorMessage(response))
+}
+
+export async function savePlanVersion(
+  scenarioId: string, name: string, description: string, plan: ScenarioResult,
+): Promise<PlanVersion> {
+  const response = await fetch(`${apiBaseUrl}/api/v1/scenarios/${scenarioId}/versions`, {
+    method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, description: description || null, plan }),
+  })
+  if (!response.ok) throw new Error(await parseErrorMessage(response))
+  return response.json()
+}
+
+export async function saveActivePlan(scenarioId: string, plan: ScenarioResult): Promise<ScenarioResult> {
+  const response = await fetch(`${apiBaseUrl}/api/v1/scenarios/${scenarioId}/active-plan`, {
+    method: 'PUT', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(plan),
+  })
+  if (!response.ok) throw new Error(await parseErrorMessage(response))
+  return response.json()
+}
+
+export async function fullReoptimize(
+  scenarioId: string,
+  snapshotName: string | null | undefined,
+  plan: ScenarioResult,
+): Promise<ScenarioAccepted> {
+  const response = await fetch(`${apiBaseUrl}/api/v1/scenarios/${scenarioId}/full-reoptimize`, {
+    method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ snapshotName: snapshotName ?? null, plan }),
+  })
+  if (!response.ok) throw new Error(await parseErrorMessage(response))
+  return response.json()
+}
+
+export async function listPlanVersions(scenarioId: string): Promise<PlanVersion[]> {
+  const response = await fetch(`${apiBaseUrl}/api/v1/scenarios/${scenarioId}/versions`, { credentials: 'include' })
+  if (!response.ok) throw new Error(await parseErrorMessage(response))
+  return response.json()
+}
+
+export async function activatePlanVersion(scenarioId: string, versionId: string): Promise<void> {
+  const response = await fetch(`${apiBaseUrl}/api/v1/scenarios/${scenarioId}/versions/${versionId}/activate`, {
+    method: 'POST', credentials: 'include',
+  })
+  if (!response.ok) throw new Error(await parseErrorMessage(response))
+}
+
+export async function deletePlanVersion(scenarioId: string, versionId: string): Promise<void> {
+  const response = await fetch(`${apiBaseUrl}/api/v1/scenarios/${scenarioId}/versions/${versionId}`, {
+    method: 'DELETE', credentials: 'include',
+  })
+  if (!response.ok) throw new Error(await parseErrorMessage(response))
+}
+
+export async function downloadPlanExport(scenarioId: string): Promise<void> {
+  const response = await fetch(`${apiBaseUrl}/api/v1/scenarios/${scenarioId}/export`, { credentials: 'include' })
+  if (!response.ok) throw new Error(await parseErrorMessage(response))
+  const blob = await response.blob()
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = `${scenarioId}-servis-plani.zip`
+  link.click()
+  URL.revokeObjectURL(url)
+}
+
+export async function findNearbyServices(scenarioId: string, address: string): Promise<NearbyServicesResponse> {
+  const query = new URLSearchParams({ address })
+  const response = await fetch(`${apiBaseUrl}/api/v1/scenarios/${scenarioId}/nearby-services?${query}`, { credentials: 'include' })
   if (!response.ok) throw new Error(await parseErrorMessage(response))
   return response.json()
 }

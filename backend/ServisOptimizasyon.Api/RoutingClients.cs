@@ -75,6 +75,44 @@ public sealed class VroomClient(HttpClient client)
         value.Length <= 500 ? value : value[..500];
 }
 
+public sealed record OsrmRouteResponse(
+    string Code,
+    List<OsrmRouteItem>? Routes);
+
+public sealed record OsrmRouteItem(
+    double Distance,
+    double Duration,
+    string Geometry);
+
+public sealed class OsrmCarClient(HttpClient client)
+{
+    public async Task<(string Geometry, int DistanceMeters, int DurationSeconds)?> RecalculateRouteAsync(
+        List<double[]> waypoints,
+        CancellationToken cancellationToken)
+    {
+        if (waypoints.Count < 2) return null;
+
+        var coords = string.Join(";", waypoints.Select(w => $"{w[0].ToString(System.Globalization.CultureInfo.InvariantCulture)},{w[1].ToString(System.Globalization.CultureInfo.InvariantCulture)}"));
+        var url = $"/route/v1/driving/{coords}?overview=full&geometries=polyline";
+
+        try
+        {
+            using var response = await client.GetAsync(url, cancellationToken);
+            if (!response.IsSuccessStatusCode) return null;
+
+            var result = await response.Content.ReadFromJsonAsync<OsrmRouteResponse>(cancellationToken);
+            if (result is null || result.Code != "Ok" || result.Routes is null || result.Routes.Count == 0) return null;
+
+            var item = result.Routes[0];
+            return (item.Geometry, (int)Math.Round(item.Distance), (int)Math.Round(item.Duration));
+        }
+        catch
+        {
+            return null;
+        }
+    }
+}
+
 public sealed class ScenarioOrchestrator(
     OptimizationClient optimizationClient,
     VroomClient vroomClient,

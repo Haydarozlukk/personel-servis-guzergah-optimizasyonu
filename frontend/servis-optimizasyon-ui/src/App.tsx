@@ -16,8 +16,8 @@ import { VersionPanel } from './components/VersionPanel'
 import { UnassignedPanel } from './components/UnassignedPanel'
 import { NearbyServicesPanel } from './components/NearbyServicesPanel'
 import {
-  addManualStop, addUnassignedPerson, addVehicle, assignPerson, assignPersonToStop, deleteUnassignedPerson,
-  moveStop, removeVehicle, unassignPerson, updateVehicle,
+  addManualStop, addUnassignedPerson, addVehicle, addViaPointOnRoute, assignPerson, assignPersonToStop, deleteUnassignedPerson,
+  moveStop, moveStopLocation, moveVehicleStartLocation, removeVehicle, unassignPerson, updateVehicle,
 } from './lib/manualPlan'
 
 type ActiveOverlay = 'none' | 'excel' | 'person'
@@ -28,11 +28,11 @@ export function App({ currentUser, onLogout }: { currentUser: CurrentUser; onLog
   const [pendingPersons, setPendingPersons] = useState<PendingPerson[]>([])
   const [isPicking, setIsPicking] = useState(false)
   const [draftLocation, setDraftLocation] = useState<[number, number] | null>(null)
-  const [showAdmin, setShowAdmin] = useState(false)
   const [showVersions, setShowVersions] = useState(false)
   const [showUnassigned, setShowUnassigned] = useState(false)
   const [showNearbyServices, setShowNearbyServices] = useState(false)
   const [stopPickVehicleId, setStopPickVehicleId] = useState<string | null>(null)
+  const [focusedLocation, setFocusedLocation] = useState<number[] | null>(null)
   const [manualError, setManualError] = useState('')
   const persistenceQueue = useRef<Promise<unknown>>(Promise.resolve())
   const { scenarioState, scenarioResult, liveStatus, errorMessage, submitExcelImport, submitFullReoptimization, replaceScenarioResult } =
@@ -116,18 +116,20 @@ export function App({ currentUser, onLogout }: { currentUser: CurrentUser; onLog
     setManualError('')
     persistenceQueue.current = persistenceQueue.current
       .then(() => saveActivePlan(next.id, next))
+      .then((saved) => {
+        if (saved) replaceScenarioResult(saved)
+      })
       .catch((reason) => setManualError(reason instanceof Error ? reason.message : 'Manuel plan kaydedilemedi.'))
     return next
   }
 
   async function handleFullReoptimize(plan = scenarioResult) {
     if (!plan) return
-    const approved = confirm('Tam optimizasyon tüm araçları, durak sıralarını ve yolcu atamalarını değiştirebilir. İşlemden önce otomatik snapshot alınacak. Devam edilsin mi?')
+    const approved = confirm('Tam optimizasyon tüm araçları, durak sıralarını ve yolcu atamalarını yeniden hesaplayacaktır. Devam edilsin mi?')
     if (!approved) return
     await persistenceQueue.current
-    const stamp = new Date().toLocaleString('tr-TR')
     setSelectedVehicleId(null)
-    await submitFullReoptimization(plan.id, `Tam optimizasyon öncesi ${stamp}`, plan)
+    await submitFullReoptimization(plan.id, null, plan)
   }
 
   function handleFleetChanged(next: ScenarioResult) {
@@ -151,8 +153,10 @@ export function App({ currentUser, onLogout }: { currentUser: CurrentUser; onLog
     const name = prompt('Versiyon adı')?.trim()
     if (!name) return
     const description = prompt('Açıklama (opsiyonel)') ?? ''
-    try { await savePlanVersion(scenarioResult.id, name, description, scenarioResult) }
-    catch (reason) { alert(reason instanceof Error ? reason.message : 'Versiyon kaydedilemedi.') }
+    try {
+      await savePlanVersion(scenarioResult.id, name, description, scenarioResult)
+      alert('Versiyon kaydedildi.')
+    } catch (reason) { alert(reason instanceof Error ? reason.message : 'Versiyon kaydedilemedi.') }
   }
 
   const displayedRoutes = useMemo(() => scenarioResult?.routes ?? [], [scenarioResult])
@@ -205,16 +209,46 @@ export function App({ currentUser, onLogout }: { currentUser: CurrentUser; onLog
         ? 'progress'
         : 'neutral'
 
+  const filteredStops = useMemo(() => {
+    if (!realStops) return null
+    if (!selectedVehicleId || !selectedRoute) return realStops
+    const routeStopIds = new Set([
+      ...(selectedRoute.steps?.map((step) => step.stopId) ?? []),
+      ...(selectedRoute.stopIds ?? []),
+    ])
+    return realStops.filter((stop) => routeStopIds.has(stop.id))
+  }, [realStops, selectedVehicleId, selectedRoute])
+
+  const filteredVehicles = useMemo(() => {
+    if (!selectedVehicleId) return allVehicles
+    return allVehicles.filter((v) => v.id === selectedVehicleId)
+  }, [allVehicles, selectedVehicleId])
+
+  function handleMoveStopLocation(stopId: string, location: [number, number]) {
+    if (!scenarioResult) return
+    const next = moveStopLocation(scenarioResult, stopId, location)
+    persistManualPlan(next)
+  }
+
+  function handleMoveVehicleStart(vehicleId: string, location: [number, number]) {
+    if (!scenarioResult) return
+    const next = moveVehicleStartLocation(scenarioResult, vehicleId, location)
+    persistManualPlan(next)
+  }
+
   return (
     <main className="op-shell">
       <ScenarioMap
-        routes={displayedRoutes}
+        routes={selectedVehicleId ? displayedRoutes.filter((r) => r.vehicleId === selectedVehicleId) : displayedRoutes}
         pendingPersons={pendingPersons as PersonPoint[]}
-        realStops={realStops}
+        realStops={filteredStops}
         workplace={scenarioResult?.workplace ?? null}
-        vehicles={allVehicles}
+        vehicles={filteredVehicles}
         pickMode={(activeOverlay === 'person' && isPicking && !draftLocation) || !!stopPickVehicleId}
+        focusedLocation={focusedLocation}
         onPickLocation={handleMapPick}
+        onMoveStopLocation={handleMoveStopLocation}
+        onMoveVehicleStart={handleMoveVehicleStart}
       />
 
       {activeOverlay === 'none' && (
@@ -227,7 +261,6 @@ export function App({ currentUser, onLogout }: { currentUser: CurrentUser; onLog
             onExport={() => scenarioResult && void downloadPlanExport(scenarioResult.id)}
             onFullReoptimize={() => void handleFullReoptimize()}
             onNearbyServices={() => scenarioResult && setShowNearbyServices(true)}
-            onAdmin={currentUser.role === 'admin' ? () => setShowAdmin(true) : undefined}
             onLogout={() => void onLogout()}
           />
           <VehicleListPanel
@@ -289,9 +322,10 @@ export function App({ currentUser, onLogout }: { currentUser: CurrentUser; onLog
           onUpdateVehicle={(patch) => scenarioResult && handleFleetChanged(updateVehicle(scenarioResult, selectedVehicleId, patch))}
           onMovePerson={(personId, vehicleId) => scenarioResult && persistManualPlan(assignPerson(scenarioResult, personId, vehicleId))}
           onUnassignPerson={(personId) => scenarioResult && persistManualPlan(unassignPerson(scenarioResult, personId))}
-          onPickStop={() => { setStopPickVehicleId(selectedVehicleId); setSelectedVehicleId(null) }}
+          onPickStop={() => { setStopPickVehicleId(selectedVehicleId) }}
           onMoveStop={(stopId, direction) => scenarioResult && persistManualPlan(moveStop(scenarioResult, selectedVehicleId, stopId, direction))}
           onAssignToStop={(personId, stopId) => scenarioResult && persistManualPlan(assignPersonToStop(scenarioResult, personId, stopId))}
+          onSelectStop={(location) => setFocusedLocation(location)}
           onDeleteVehicle={() => {
             if (!scenarioResult) return
             setSelectedVehicleId(null)
@@ -300,7 +334,6 @@ export function App({ currentUser, onLogout }: { currentUser: CurrentUser; onLog
         />
       )}
 
-      {showAdmin && <AdminPanel onClose={() => setShowAdmin(false)} />}
       {showVersions && scenarioResult && <VersionPanel
         scenarioId={scenarioResult.id}
         onClose={() => setShowVersions(false)}

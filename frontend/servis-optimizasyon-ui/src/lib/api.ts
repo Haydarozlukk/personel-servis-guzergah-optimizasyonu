@@ -101,6 +101,13 @@ export async function getScenarioResult(scenarioId: string): Promise<ScenarioRes
   return response.json()
 }
 
+export async function getLatestScenario(): Promise<ScenarioResult | null> {
+  const response = await fetch(`${apiBaseUrl}/api/v1/scenarios/latest`, { credentials: 'include' })
+  if (response.status === 404) return null
+  if (!response.ok) throw new Error(await parseErrorMessage(response))
+  return response.json()
+}
+
 export async function getCurrentUser(): Promise<CurrentUser | null> {
   const response = await fetch(`${apiBaseUrl}/api/v1/auth/me`, { credentials: 'include' })
   if (response.status === 401) return null
@@ -137,6 +144,15 @@ export async function listUsers(): Promise<CurrentUser[]> {
   return response.json()
 }
 
+export async function adminAddUser(email: string, displayName: string, password: string, role: string = 'expert'): Promise<CurrentUser> {
+  const response = await fetch(`${apiBaseUrl}/api/v1/admin/users`, {
+    method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, displayName, password, role }),
+  })
+  if (!response.ok) throw new Error(await parseErrorMessage(response))
+  return response.json()
+}
+
 export async function approveUser(id: string): Promise<void> {
   const response = await fetch(`${apiBaseUrl}/api/v1/admin/users/${id}/approve`, { method: 'POST', credentials: 'include' })
   if (!response.ok) throw new Error(await parseErrorMessage(response))
@@ -169,12 +185,12 @@ export async function saveActivePlan(scenarioId: string, plan: ScenarioResult): 
 
 export async function fullReoptimize(
   scenarioId: string,
-  snapshotName: string,
+  snapshotName: string | null | undefined,
   plan: ScenarioResult,
 ): Promise<ScenarioAccepted> {
   const response = await fetch(`${apiBaseUrl}/api/v1/scenarios/${scenarioId}/full-reoptimize`, {
     method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ snapshotName, plan }),
+    body: JSON.stringify({ snapshotName: snapshotName ?? null, plan }),
   })
   if (!response.ok) throw new Error(await parseErrorMessage(response))
   return response.json()

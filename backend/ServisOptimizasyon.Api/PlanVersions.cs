@@ -126,7 +126,7 @@ public sealed class PostgresPlanVersionStore(NpgsqlDataSource dataSource) : IPla
         await using var command = new NpgsqlCommand(
             """
             SELECT v.id, v.name, v.description, v.created_by, v.created_at,
-                   v.id = s.active_version_id
+                   COALESCE(v.id = s.active_version_id, false)
             FROM scenario_versions v JOIN scenarios s ON s.id = v.scenario_id
             WHERE v.scenario_id = @scenario ORDER BY v.created_at DESC
             """, connection);

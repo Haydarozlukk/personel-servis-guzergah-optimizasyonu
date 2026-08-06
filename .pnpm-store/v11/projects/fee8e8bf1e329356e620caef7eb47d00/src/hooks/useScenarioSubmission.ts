@@ -1,10 +1,10 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
-  addPersonsAndReoptimize,
+  fullReoptimize,
+  getLatestScenario,
   importScenarioFromExcel,
   waitForScenarioResult,
   type ExcelImportForm,
-  type NewPersonInput,
   type ScenarioAccepted,
   type ScenarioResult,
 } from '../lib/api'
@@ -17,6 +17,18 @@ export function useScenarioSubmission() {
   const [scenarioResult, setScenarioResult] = useState<ScenarioResult | null>(null)
   const [liveStatus, setLiveStatus] = useState<LiveStatus>(null)
   const [errorMessage, setErrorMessage] = useState('')
+
+  // Auto-load the latest scenario on mount
+  useEffect(() => {
+    void getLatestScenario().then((result) => {
+      if (result) {
+        setScenarioResult(result)
+        setScenarioState('completed')
+      }
+    }).catch(() => {
+      // Silently ignore — user can still import a new scenario
+    })
+  }, [])
 
   async function trackAcceptedScenario(
     requestAccepted: () => Promise<ScenarioAccepted>,
@@ -46,9 +58,17 @@ export function useScenarioSubmission() {
     return trackAcceptedScenario(() => importScenarioFromExcel(form))
   }
 
-  async function submitNewPersons(scenarioId: string, persons: NewPersonInput[]) {
-    return trackAcceptedScenario(() => addPersonsAndReoptimize(scenarioId, persons))
+  async function submitFullReoptimization(scenarioId: string, snapshotName: string | null | undefined, plan: ScenarioResult) {
+    return trackAcceptedScenario(() => fullReoptimize(scenarioId, snapshotName, plan))
   }
 
-  return { scenarioState, scenarioResult, liveStatus, errorMessage, submitExcelImport, submitNewPersons }
+  return {
+    scenarioState,
+    scenarioResult,
+    liveStatus,
+    errorMessage,
+    submitExcelImport,
+    submitFullReoptimization,
+    replaceScenarioResult: setScenarioResult,
+  }
 }
