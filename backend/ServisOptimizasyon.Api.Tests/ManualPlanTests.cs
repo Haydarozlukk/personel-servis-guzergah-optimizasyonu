@@ -47,7 +47,7 @@ public class ManualPlanTests
 
         Assert.Equal(2, parts.Length);
         Assert.All(parts, part => Assert.InRange(
-            part.Split('\n', StringSplitOptions.RemoveEmptyEntries).Length - 1,
+            part.Split(new[] { "\r\n", "\n" }, StringSplitOptions.RemoveEmptyEntries).Length - 1,
             1,
             20));
         var kml = Assert.Single(archive.Entries, entry => entry.Name.EndsWith(".kml"));
