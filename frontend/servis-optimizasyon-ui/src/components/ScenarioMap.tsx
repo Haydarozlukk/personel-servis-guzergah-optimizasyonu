@@ -28,10 +28,21 @@ type ScenarioMapProps = {
   vehicles: ScenarioVehicle[]
   pickMode?: boolean
   focusedLocation?: number[] | null
+  searchMarker?: { location: number[]; address: string } | null
   onPickLocation?: (position: [number, number]) => void
   onMoveStopLocation?: (stopId: string, location: [number, number]) => void
   onMoveVehicleStart?: (vehicleId: string, location: [number, number]) => void
 }
+
+const searchPinIcon = L.divIcon({
+  className: 'op-search-pin-icon',
+  html: `<svg viewBox="0 0 24 30" width="26" height="32" style="filter: drop-shadow(0 3px 4px rgba(0,0,0,.35));">
+    <path d="M12 0C5.4 0 0 5.4 0 12c0 9 12 18 12 18s12-9 12-18c0-6.6-5.4-12-12-12z" fill="#2563eb"/>
+    <circle cx="12" cy="12" r="4.6" fill="#fff"/>
+  </svg>`,
+  iconSize: [26, 32],
+  iconAnchor: [13, 32],
+})
 
 const WALKING_LIMIT_METERS = 500
 
@@ -175,6 +186,7 @@ export function ScenarioMap({
   vehicles,
   pickMode = false,
   focusedLocation,
+  searchMarker,
   onPickLocation,
   onMoveStopLocation,
   onMoveVehicleStart,
@@ -267,6 +279,11 @@ export function ScenarioMap({
               Varış
             </Tooltip>
             <Popup>Kullanıcının belirlediği varış noktası</Popup>
+          </Marker>
+        )}
+        {searchMarker && (
+          <Marker position={[searchMarker.location[1], searchMarker.location[0]]} icon={searchPinIcon}>
+            <Popup>{searchMarker.address}</Popup>
           </Marker>
         )}
         <Pane name="vehicle-starts" style={{ zIndex: 650 }}>
