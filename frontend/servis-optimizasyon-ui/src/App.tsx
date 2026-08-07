@@ -16,7 +16,7 @@ import { AdminPanel } from './components/AuthShell'
 import { VersionPanel } from './components/VersionPanel'
 import { UnassignedPanel } from './components/UnassignedPanel'
 import {
-  addManualStop, addUnassignedPerson, addVehicle, addViaPointOnRoute, assignPerson, assignPersonToStop, deleteUnassignedPerson,
+  addManualStop, addUnassignedPerson, addVehicle, addViaPointOnRoute, assignPerson, assignPersonToStop, deleteUnassignedPerson, distributePersonsToPlan,
   moveStop, moveStopLocation, moveVehicleStartLocation, removeVehicle, unassignPerson, updateVehicle,
 } from './lib/manualPlan'
 
@@ -35,7 +35,7 @@ export function App({ currentUser, onLogout }: { currentUser: CurrentUser; onLog
   const [focusedLocation, setFocusedLocation] = useState<number[] | null>(null)
   const [manualError, setManualError] = useState('')
   const persistenceQueue = useRef<Promise<unknown>>(Promise.resolve())
-  const { scenarioState, scenarioResult, liveStatus, errorMessage, submitExcelImport, submitFullReoptimization, replaceScenarioResult } =
+  const { scenarioState, scenarioResult, liveStatus, errorMessage, submitExcelImport, submitExcelAppend, submitFullReoptimization, replaceScenarioResult } =
     useScenarioSubmission()
 
   const isBusy = scenarioState === 'submitting' || scenarioState === 'waiting'
@@ -96,16 +96,14 @@ export function App({ currentUser, onLogout }: { currentUser: CurrentUser; onLog
   }
 
   async function handleAddPersons() {
-    if (!scenarioResult) return
-    let next = scenarioResult
-    for (const pending of pendingPersons) {
-      let id = pending.id
-      let suffix = 2
-      while (next.persons.some((person) => person.id === id)) id = `${pending.id}-${suffix++}`
-      next = addUnassignedPerson(next, {
-        id, name: pending.name, location: [pending.position[1], pending.position[0]],
-      })
-    }
+    if (!scenarioResult || pendingPersons.length === 0) return
+    const personsToDistribute = pendingPersons.map((pending) => ({
+      id: pending.id,
+      name: pending.name,
+      address: `${pending.firstName} ${pending.lastName}`,
+      location: [pending.position[1], pending.position[0]],
+    }))
+    const next = distributePersonsToPlan(scenarioResult, personsToDistribute)
     persistManualPlan(next)
     setPendingPersons([])
     closeSheet()
@@ -291,9 +289,14 @@ export function App({ currentUser, onLogout }: { currentUser: CurrentUser; onLog
       {activeOverlay === 'add' && (
         <OverlaySheet kicker="Sonradan ekleme" title="Kişi Ekle" onClose={closeSheet}>
           <AddPeopleSheet
+            hasActivePlan={Boolean(scenarioResult)}
             onSubmitExcel={(form) => {
               setActiveOverlay('none')
-              void submitExcelImport(form)
+              if (form.mode === 'distribute' && scenarioResult) {
+                void submitExcelAppend(scenarioResult.id, scenarioResult, form)
+              } else {
+                void submitExcelImport(form)
+              }
             }}
             excelDisabled={isBusy}
             excelBusy={isBusy}

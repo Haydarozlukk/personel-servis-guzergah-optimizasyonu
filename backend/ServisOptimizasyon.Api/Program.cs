@@ -405,6 +405,47 @@ app.MapPost("/api/v1/scenarios/import", async (
         new ScenarioAccepted(scenarioId, ScenarioStatus.Queued));
 }).RequireAuthorization();
 
+app.MapPost("/api/v1/scenarios/{scenarioId:guid}/import-append", async (
+    Guid scenarioId,
+    HttpRequest request,
+    IGeocodingService geocodingService,
+    GeocodingOptions geocodingConfiguration,
+    CancellationToken cancellationToken) =>
+{
+    if (!request.HasFormContentType)
+        return Results.ValidationProblem(new Dictionary<string, string[]> { ["file"] = ["İstek multipart/form-data olmalıdır."] });
+
+    var form = await request.ReadFormAsync(cancellationToken);
+    var file = form.Files["file"];
+    if (file is null || file.Length == 0)
+        return Results.ValidationProblem(new Dictionary<string, string[]> { ["file"] = ["Excel dosyası zorunludur."] });
+
+    if (file.Length > ScenarioExcelImport.MaxFileBytes)
+        return Results.Json(new { title = "Dosya çok büyük.", maxBytes = ScenarioExcelImport.MaxFileBytes }, statusCode: StatusCodes.Status413PayloadTooLarge);
+
+    if (string.IsNullOrWhiteSpace(geocodingConfiguration.BaseUrl))
+        return Results.Json(new { title = "Geocoding servisi yapılandırılmamış." }, statusCode: StatusCodes.Status503ServiceUnavailable);
+
+    byte[] workbookBytes;
+    await using (var fileStream = file.OpenReadStream())
+    using (var buffer = new MemoryStream())
+    {
+        await fileStream.CopyToAsync(buffer, cancellationToken);
+        workbookBytes = buffer.ToArray();
+    }
+
+    var importForm = new ExcelImportForm("Excel İçe Aktarımı", new TimeOnly(8, 30), [32.8597, 39.9334], null, null);
+    var import = ScenarioExcelImport.ParseAddresses(new MemoryStream(workbookBytes), importForm);
+    if (import.Persons is null || import.Errors.Count > 0)
+        return Results.ValidationProblem(import.Errors);
+
+    var geocoded = await GeocodePersonsAsync(import.Persons, geocodingService, geocodingConfiguration.MaxConcurrency, cancellationToken);
+    if (geocoded.Persons.Count == 0)
+        return Results.ValidationProblem(new Dictionary<string, string[]> { ["persons"] = ["Excel'deki adreslerin hiçbiri güvenilir biçimde eşleştirilemedi."] });
+
+    return Results.Ok(new { persons = geocoded.Persons, skippedCount = geocoded.Skipped.Count });
+}).RequireAuthorization();
+
 app.MapGet("/api/v1/scenarios/latest", async (
     IScenarioStore store,
     IPlanVersionStore versions,

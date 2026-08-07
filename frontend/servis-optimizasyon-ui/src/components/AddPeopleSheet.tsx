@@ -1,10 +1,11 @@
 import { useState } from 'react'
 import type { ExcelImportForm as ExcelImportFormData } from '../lib/api'
-import { ExcelImportSheet } from './ExcelImportSheet'
+import { ExcelImportSheet, type ImportMode } from './ExcelImportSheet'
 import { PersonAddSheet, type PendingPerson } from './PersonAddSheet'
 
 type AddPeopleSheetProps = {
-  onSubmitExcel: (form: ExcelImportFormData) => void
+  hasActivePlan: boolean
+  onSubmitExcel: (form: ExcelImportFormData & { mode: ImportMode }) => void
   excelDisabled: boolean
   excelBusy: boolean
   excelErrorMessage: string
@@ -22,6 +23,7 @@ type AddPeopleSheetProps = {
 }
 
 export function AddPeopleSheet({
+  hasActivePlan,
   onSubmitExcel,
   excelDisabled,
   excelBusy,
@@ -71,6 +73,7 @@ export function AddPeopleSheet({
           disabled={excelDisabled}
           isBusy={excelBusy}
           errorMessage={excelErrorMessage}
+          hasActivePlan={hasActivePlan}
         />
       )}
     </div>
