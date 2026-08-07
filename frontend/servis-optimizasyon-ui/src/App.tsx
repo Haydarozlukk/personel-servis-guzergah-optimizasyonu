@@ -1,26 +1,26 @@
 import { useMemo, useRef, useState } from 'react'
 import type { PersonPoint } from './lib/person'
-import { downloadPlanExport, saveActivePlan, savePlanVersion, type CurrentUser, type ScenarioResult, type ScenarioVehicle } from './lib/api'
+import { downloadPlanExport, saveActivePlan, type CurrentUser, type NearbyServicesResponse, type ScenarioResult, type ScenarioVehicle } from './lib/api'
 import { useScenarioSubmission } from './hooks/useScenarioSubmission'
 import { ScenarioMap } from './components/ScenarioMap'
-import { TopActionButtons } from './components/TopActionButtons'
+import { ActionMenu } from './components/ActionMenu'
+import { MapSearchBar } from './components/MapSearchBar'
 import { VehicleListPanel, type VehicleRow } from './components/VehicleListPanel'
 import { OverlaySheet } from './components/OverlaySheet'
-import { ExcelImportSheet } from './components/ExcelImportSheet'
-import { PersonAddSheet, type PendingPerson } from './components/PersonAddSheet'
+import { AddPeopleSheet } from './components/AddPeopleSheet'
+import { type PendingPerson } from './components/PersonAddSheet'
 import { VehicleDrawer } from './components/VehicleDrawer'
 import { StatusStrip, type StatusTone } from './components/StatusStrip'
 import { routeColors } from './lib/colors'
 import { AdminPanel } from './components/AuthShell'
 import { VersionPanel } from './components/VersionPanel'
 import { UnassignedPanel } from './components/UnassignedPanel'
-import { NearbyServicesPanel } from './components/NearbyServicesPanel'
 import {
   addManualStop, addUnassignedPerson, addVehicle, addViaPointOnRoute, assignPerson, assignPersonToStop, deleteUnassignedPerson,
   moveStop, moveStopLocation, moveVehicleStartLocation, removeVehicle, unassignPerson, updateVehicle,
 } from './lib/manualPlan'
 
-type ActiveOverlay = 'none' | 'excel' | 'person'
+type ActiveOverlay = 'none' | 'add'
 
 export function App({ currentUser, onLogout }: { currentUser: CurrentUser; onLogout: () => Promise<void> }) {
   const [activeOverlay, setActiveOverlay] = useState<ActiveOverlay>('none')
@@ -30,7 +30,7 @@ export function App({ currentUser, onLogout }: { currentUser: CurrentUser; onLog
   const [draftLocation, setDraftLocation] = useState<[number, number] | null>(null)
   const [showVersions, setShowVersions] = useState(false)
   const [showUnassigned, setShowUnassigned] = useState(false)
-  const [showNearbyServices, setShowNearbyServices] = useState(false)
+  const [nearbySearch, setNearbySearch] = useState<NearbyServicesResponse | null>(null)
   const [stopPickVehicleId, setStopPickVehicleId] = useState<string | null>(null)
   const [focusedLocation, setFocusedLocation] = useState<number[] | null>(null)
   const [manualError, setManualError] = useState('')
@@ -148,17 +148,6 @@ export function App({ currentUser, onLogout }: { currentUser: CurrentUser; onLog
     handleFleetChanged(addVehicle(scenarioResult, vehicle))
   }
 
-  async function handleSaveVersion() {
-    if (!scenarioResult) return
-    const name = prompt('Versiyon adı')?.trim()
-    if (!name) return
-    const description = prompt('Açıklama (opsiyonel)') ?? ''
-    try {
-      await savePlanVersion(scenarioResult.id, name, description, scenarioResult)
-      alert('Versiyon kaydedildi.')
-    } catch (reason) { alert(reason instanceof Error ? reason.message : 'Versiyon kaydedilemedi.') }
-  }
-
   const displayedRoutes = useMemo(() => scenarioResult?.routes ?? [], [scenarioResult])
   const allVehicles = scenarioResult?.vehicles ?? []
   const realStops = scenarioResult?.stops ?? null
@@ -172,20 +161,37 @@ export function App({ currentUser, onLogout }: { currentUser: CurrentUser; onLog
     return map
   }, [displayedRoutes])
 
-  const vehicleRows: VehicleRow[] = allVehicles.map((vehicle) => {
-    const route = displayedRoutes.find((r) => r.vehicleId === vehicle.id)
-    return {
-      id: vehicle.id,
-      capacity: vehicle.capacity,
-      routed: !!route,
-      color: vehicleColors.get(vehicle.id) ?? routeColors[0],
-      summary: route
-        ? route.geometry
-          ? `${(route.distanceMeters / 1000).toFixed(1)} km · ${Math.round(route.durationSeconds / 60)} dk`
-          : `Manuel sıra · ${route.load} yolcu`
-        : 'Rota atanmadı',
-    }
-  })
+  const nearbyByVehicle = useMemo(() => {
+    const map = new Map<string, number>()
+    nearbySearch?.services.forEach((service) => map.set(service.vehicleId, service.distanceMeters))
+    return map
+  }, [nearbySearch])
+
+  const nearestVehicleId = useMemo(() => {
+    if (!nearbySearch?.services.length) return null
+    return nearbySearch.services.reduce((closest, service) =>
+      service.distanceMeters < closest.distanceMeters ? service : closest,
+    ).vehicleId
+  }, [nearbySearch])
+
+  const vehicleRows: VehicleRow[] = allVehicles
+    .map((vehicle) => {
+      const route = displayedRoutes.find((r) => r.vehicleId === vehicle.id)
+      return {
+        id: vehicle.id,
+        capacity: vehicle.capacity,
+        routed: !!route,
+        color: vehicleColors.get(vehicle.id) ?? routeColors[0],
+        summary: route
+          ? route.geometry
+            ? `${(route.distanceMeters / 1000).toFixed(1)} km · ${Math.round(route.durationSeconds / 60)} dk`
+            : `Manuel sıra · ${route.load} yolcu`
+          : 'Rota atanmadı',
+        nearbyDistanceMeters: nearbyByVehicle.get(vehicle.id),
+        isNearest: vehicle.id === nearestVehicleId,
+      }
+    })
+    .sort((a, b) => (a.nearbyDistanceMeters ?? Infinity) - (b.nearbyDistanceMeters ?? Infinity))
 
   const selectedVehicle = allVehicles.find((v) => v.id === selectedVehicleId)
   const selectedRoute = displayedRoutes.find((r) => r.vehicleId === selectedVehicleId)
@@ -244,8 +250,9 @@ export function App({ currentUser, onLogout }: { currentUser: CurrentUser; onLog
         realStops={filteredStops}
         workplace={scenarioResult?.workplace ?? null}
         vehicles={filteredVehicles}
-        pickMode={(activeOverlay === 'person' && isPicking && !draftLocation) || !!stopPickVehicleId}
+        pickMode={(activeOverlay === 'add' && isPicking && !draftLocation) || !!stopPickVehicleId}
         focusedLocation={focusedLocation}
+        searchMarker={nearbySearch ? { location: nearbySearch.location, address: nearbySearch.address } : null}
         onPickLocation={handleMapPick}
         onMoveStopLocation={handleMoveStopLocation}
         onMoveVehicleStart={handleMoveVehicleStart}
@@ -253,16 +260,23 @@ export function App({ currentUser, onLogout }: { currentUser: CurrentUser; onLog
 
       {activeOverlay === 'none' && (
         <>
-          <TopActionButtons
-            onOpenExcel={() => setActiveOverlay('excel')}
-            onOpenPerson={() => setActiveOverlay('person')}
-            onSaveVersion={() => void handleSaveVersion()}
+          <ActionMenu
+            onOpenAdd={() => setActiveOverlay('add')}
             onOpenVersions={() => scenarioResult && setShowVersions(true)}
             onExport={() => scenarioResult && void downloadPlanExport(scenarioResult.id)}
             onFullReoptimize={() => void handleFullReoptimize()}
-            onNearbyServices={() => scenarioResult && setShowNearbyServices(true)}
             onLogout={() => void onLogout()}
           />
+          {scenarioResult && (
+            <MapSearchBar
+              scenarioId={scenarioResult.id}
+              result={nearbySearch}
+              onResult={(result) => {
+                setNearbySearch(result)
+                if (result) setFocusedLocation(result.location)
+              }}
+            />
+          )}
           <VehicleListPanel
             vehicles={vehicleRows}
             selectedVehicleId={selectedVehicleId}
@@ -274,23 +288,16 @@ export function App({ currentUser, onLogout }: { currentUser: CurrentUser; onLog
         </>
       )}
 
-      {activeOverlay === 'excel' && (
-        <OverlaySheet kicker="Yeni planlama" title="Excel Aktar" onClose={closeSheet}>
-          <ExcelImportSheet
-            onSubmit={(form) => {
+      {activeOverlay === 'add' && (
+        <OverlaySheet kicker="Sonradan ekleme" title="Kişi Ekle" onClose={closeSheet}>
+          <AddPeopleSheet
+            onSubmitExcel={(form) => {
               setActiveOverlay('none')
               void submitExcelImport(form)
             }}
-            disabled={isBusy}
-            isBusy={isBusy}
-            errorMessage={scenarioState === 'failed' ? errorMessage : ''}
-          />
-        </OverlaySheet>
-      )}
-
-      {activeOverlay === 'person' && (
-        <OverlaySheet kicker="Sonradan ekleme" title="Kişi Ekle" onClose={closeSheet}>
-          <PersonAddSheet
+            excelDisabled={isBusy}
+            excelBusy={isBusy}
+            excelErrorMessage={scenarioState === 'failed' ? errorMessage : ''}
             isPicking={isPicking}
             onTogglePicking={handleTogglePicking}
             draftLocation={draftLocation}
@@ -300,8 +307,8 @@ export function App({ currentUser, onLogout }: { currentUser: CurrentUser; onLog
             pendingPersons={pendingPersons}
             onRemovePending={handleRemovePending}
             onReoptimize={() => void handleAddPersons()}
-            disabled={isBusy || !scenarioResult}
-            isBusy={isBusy}
+            manualDisabled={isBusy || !scenarioResult}
+            manualBusy={isBusy}
           />
         </OverlaySheet>
       )}
@@ -336,6 +343,7 @@ export function App({ currentUser, onLogout }: { currentUser: CurrentUser; onLog
 
       {showVersions && scenarioResult && <VersionPanel
         scenarioId={scenarioResult.id}
+        plan={scenarioResult}
         onClose={() => setShowVersions(false)}
         onActivated={(plan) => replaceScenarioResult(plan)}
       />}
@@ -345,11 +353,6 @@ export function App({ currentUser, onLogout }: { currentUser: CurrentUser; onLog
         onClose={() => setShowUnassigned(false)}
         onAssign={(personId, vehicleId) => persistManualPlan(assignPerson(scenarioResult, personId, vehicleId))}
         onDelete={(personId) => persistManualPlan(deleteUnassignedPerson(scenarioResult, personId))}
-      />}
-      {showNearbyServices && scenarioResult && <NearbyServicesPanel
-        scenarioId={scenarioResult.id}
-        onClose={() => setShowNearbyServices(false)}
-        onSelectVehicle={setSelectedVehicleId}
       />}
 
       {stopPickVehicleId && <div className="op-map-pick-banner">Haritada yeni durağın yerini seçin · <button onClick={() => setStopPickVehicleId(null)}>Vazgeç</button></div>}

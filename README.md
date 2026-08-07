@@ -21,19 +21,39 @@ Kurum personelinin en fazla 500 metre **gerçek yürüme mesafesi** ile ulaşabi
 ## Başlatma
 
 1. `.env.example` dosyasını `.env` olarak kopyalayıp parolayı değiştirin.
-2. Ankara OSM verisinden `car` ve `foot` için OSRM ön işleme çıktısı üretin; ayrıntı için `infrastructure/osrm/README.md`.
-3. `docker compose --profile routing up --build` çalıştırın.
+2. `docker compose --profile routing up --build` çalıştırın.
 
-İlk çalıştırmada `nominatim-prepare` servisi Türkiye OpenStreetMap verisini otomatik
-indirir, `osmium` ile Ankara kapsamına keser ve yalnızca oluşan Ankara PBF dosyasını
-Nominatim'e verir. Geçici Türkiye PBF dosyası kesme tamamlanınca silinir. Bu işlem
-bilgisayarın ve bağlantının hızına göre uzun sürebilir; backend Nominatim hazır olana
-kadar otomatik olarak bekler. Ankara PBF'si `nominatim-import`, adres indeksi ise
-`nominatim-ankara-data` volume'unda saklandığı için sonraki açılışlarda işlemler tekrarlanmaz.
+İlk çalıştırmada `map-prepare` servisi Türkiye OpenStreetMap verisini otomatik
+indirir ve `osmium` ile Ankara kapsamına keser. Ortaya çıkan tek Ankara PBF dosyası
+hem Nominatim'e hem `osrm-prepare` servisine girdi olur. `osrm-prepare`, aynı harita
+sürümünden `car` ve `foot` MLD verilerini otomatik üretir. Geçici Türkiye PBF dosyası
+kesme tamamlanınca silinir. İlk indirme, Nominatim importu ve OSRM ön işlemesi
+bilgisayarın ve bağlantının hızına göre uzun sürebilir.
+
+Ankara PBF'si `map-source`, OSRM çıktıları `osrm-data`, adres indeksi ise
+`nominatim-ankara-data` named volume'unda tutulur. Geçerli çıktılar bulunduğunda
+sonraki açılışlarda indirme, clipping ve OSRM ön işlemesi tekrarlanmaz. Repo içindeki
+`infrastructure/osrm/data` klasörü artık Compose tarafından kullanılmaz.
 Nominatim durum uç noktası yerel geliştirmede `http://localhost:8081/status` adresindedir.
 
-`--profile routing` verilmezse yalnızca `postgres`, `backend`, `optimization` ve `frontend` ayağa kalkar;
-OSRM ve VROOM olmadığı için durak üretimi `503` döner. Uygulama servisleri yine de sağlıklı çalışır.
+`--profile routing` verilmezse harita hazırlama ve Nominatim ile uygulama servisleri
+ayağa kalkar; OSRM ve VROOM olmadığı için durak üretimi `503` döner. Diğer uygulama
+servisleri yine de sağlıklı çalışır.
+
+Harita verisini Geofabrik'ten yeniden indirip Nominatim ve OSRM'i aynı yeni PBF'den
+baştan oluşturmak için volume'ları temizleyip stack'i tekrar başlatın:
+
+```bash
+docker compose down -v
+docker compose --profile routing up --build
+```
+
+**Dikkat:** `docker compose down -v`, harita volume'larıyla birlikte uygulamanın
+PostgreSQL volume'unu ve geliştirme verilerini de kalıcı olarak siler. `--build`
+tek başına dolu harita volume'larını yenilemez.
+
+Eski bind-mount tabanlı kurulumdan bu akışa ilk geçişte de Nominatim ve OSRM'in
+aynı PBF'den kurulması için bir kez `docker compose down -v` çalıştırılmalıdır.
 
 Docker Desktop kullanıcı kurulumunda CLI PATH içinde değilse Windows'ta şu tam yol kullanılabilir:
 

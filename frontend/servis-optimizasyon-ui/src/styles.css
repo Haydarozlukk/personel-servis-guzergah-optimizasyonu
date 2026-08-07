@@ -143,6 +143,9 @@ button { -webkit-tap-highlight-color: transparent; }
 .op-admin-user span { color: var(--muted); font-size: .75rem; }
 .op-admin-user > div:last-child { display: flex; gap: .45rem; }
 
+.op-version-save { margin-top: 1rem; padding-top: 1rem; border-top: 1px dashed var(--border-strong); }
+.op-version-save .op-admin-form { margin-top: .6rem; }
+
 /* Admin Navigation & Panel Page --------------------------------------------- */
 
 .op-admin-top-nav {
@@ -370,11 +373,18 @@ input:focus-visible { outline: 3px solid rgba(37, 99, 235, .28); outline-offset:
 
 /* Shell + map --------------------------------------------------------- */
 
-.op-shell {
-  position: fixed;
-  inset: 0;
+.op-app-container {
+  display: flex;
+  flex-direction: column;
   width: 100vw;
   height: 100dvh;
+  overflow: hidden;
+}
+
+.op-shell {
+  position: relative;
+  flex: 1;
+  min-height: 0;
   overflow: hidden;
 }
 
@@ -462,18 +472,182 @@ input:focus-visible { outline: 3px solid rgba(37, 99, 235, .28); outline-offset:
 
 .op-error-text { margin: .6rem 0 0; color: var(--red); font-size: .76rem; }
 
-/* Top-left action buttons ---------------------------------------------- */
+/* Round cascading action menu ------------------------------------------ */
 
-.op-top-buttons {
+.op-action-menu {
   position: absolute;
   top: 20px;
   left: 20px;
   z-index: 1100;
   display: flex;
-  flex-wrap: wrap;
-  gap: .6rem;
-  max-width: calc(100vw - 380px);
+  flex-direction: column;
+  align-items: center;
 }
+
+.op-action-trigger {
+  width: 46px;
+  height: 46px;
+  border: 0;
+  border-radius: 50%;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  background: linear-gradient(135deg, var(--green), var(--green-dark));
+  box-shadow: 0 9px 20px rgba(23, 101, 58, .3);
+  transition: box-shadow .16s ease, transform .16s ease;
+}
+
+.op-action-trigger:hover { transform: translateY(-1px); }
+.op-action-trigger.open { box-shadow: 0 0 0 4px rgba(23, 101, 58, .22), 0 9px 20px rgba(23, 101, 58, .3); }
+
+.op-action-trigger-bars { display: grid; gap: 4px; }
+.op-action-trigger-bars i { width: 18px; height: 2px; border-radius: 1px; background: white; display: block; }
+
+.op-action-list {
+  margin-top: .65rem;
+  display: grid;
+  grid-auto-flow: row;
+  grid-template-columns: 1fr;
+  width: fit-content;
+  gap: .8rem;
+  justify-items: center;
+}
+
+.op-action-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  justify-items: center;
+  gap: .3rem;
+  width: 4.2rem;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
+}
+
+.op-action-item-circle {
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  color: var(--green-dark);
+  box-shadow: var(--shadow-sm);
+  transition: transform .14s ease, box-shadow .14s ease, background .14s ease;
+}
+
+.op-action-item-circle svg { width: 19px; height: 19px; }
+
+.op-action-item:hover .op-action-item-circle {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md);
+  background: var(--green-light);
+}
+
+.op-action-item.danger .op-action-item-circle { color: var(--red); border-color: #f0caca; }
+.op-action-item.danger .op-action-item-label { color: var(--red); }
+.op-action-item.danger:hover .op-action-item-circle { background: var(--red-light); border-color: #f0caca; }
+
+.op-action-item-label {
+  font-size: .66rem;
+  font-weight: 700;
+  color: var(--ink);
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+  padding: .1rem .4rem;
+  border-radius: .4rem;
+  white-space: nowrap;
+}
+
+/* Tab switch (used inside the Kişi Ekle sheet) -------------------------- */
+
+.op-tab-switch {
+  display: inline-flex;
+  gap: .3rem;
+  padding: .25rem;
+  margin-bottom: 1rem;
+  background: var(--surface-strong);
+  border-radius: .7rem;
+}
+
+.op-tab {
+  padding: .5rem 1rem;
+  border: 0;
+  border-radius: .55rem;
+  font-size: .82rem;
+  font-weight: 700;
+  color: var(--muted);
+  background: transparent;
+  cursor: pointer;
+}
+
+.op-tab.active { color: var(--green-dark); background: white; box-shadow: var(--shadow-sm); }
+
+/* Map search bar (Google Maps style) ------------------------------------ */
+
+.op-map-search {
+  position: absolute;
+  top: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1100;
+  width: min(420px, calc(100vw - 380px - 100px));
+}
+
+.op-map-search-pill {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  padding: .6rem .9rem;
+  border-radius: 999px;
+  background: var(--surface);
+  box-shadow: var(--shadow-md);
+}
+
+.op-map-search-lens {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+  border: 2px solid var(--muted);
+  border-radius: 50%;
+  position: relative;
+}
+.op-map-search-lens::after {
+  content: "";
+  position: absolute;
+  width: 6px;
+  height: 2px;
+  background: var(--muted);
+  right: -5px;
+  bottom: -1px;
+  transform: rotate(45deg);
+}
+
+.op-map-search-pill input {
+  flex: 1;
+  border: 0;
+  outline: 0;
+  font-size: .85rem;
+  color: var(--ink);
+  background: transparent;
+}
+
+.op-map-search-clear {
+  border: 0;
+  background: var(--surface-strong);
+  color: var(--muted);
+  width: 1.5rem;
+  height: 1.5rem;
+  border-radius: 50%;
+  cursor: pointer;
+  font-size: .9rem;
+  line-height: 1;
+  flex: 0 0 auto;
+}
+
+.op-map-search-error { margin: .4rem 0 0; color: var(--red); font-size: .76rem; text-align: center; }
 
 /* Vehicle list panel ----------------------------------------------------- */
 
@@ -545,6 +719,8 @@ input:focus-visible { outline: 3px solid rgba(37, 99, 235, .28); outline-offset:
 .op-vehicle-row-name { display: inline-flex; align-items: center; gap: .45rem; font-weight: 720; font-size: .86rem; }
 .op-vehicle-row-name i { display: inline-block; width: .55rem; height: .55rem; border-radius: 50%; }
 .op-vehicle-row-capacity { color: var(--muted); font-size: .72rem; }
+.op-vehicle-row-distance { display: inline-flex; align-items: center; gap: .35rem; color: var(--muted); font-size: .72rem; font-variant-numeric: tabular-nums; }
+.op-vehicle-near-chip { padding: .1rem .4rem; border-radius: 999px; color: white; background: var(--blue); font-size: .62rem; font-weight: 800; }
 .op-vehicle-row-summary { font-size: .72rem; color: var(--muted); }
 .op-vehicle-row-summary.unrouted { color: var(--faint); }
 
@@ -684,10 +860,10 @@ input:focus-visible { outline: 3px solid rgba(37, 99, 235, .28); outline-offset:
 
 /* Vehicle drawer ----------------------------------------------------------- */
 
-.op-drawer-scrim { position: fixed; inset: 0; z-index: 1280; background: transparent; }
+.op-drawer-scrim { position: absolute; inset: 0; z-index: 1280; background: transparent; }
 
 .op-drawer {
-  position: fixed;
+  position: absolute;
   top: 20px;
   right: 20px;
   bottom: 20px;
@@ -791,6 +967,8 @@ input:focus-visible { outline: 3px solid rgba(37, 99, 235, .28); outline-offset:
   bottom: 92px;
   z-index: 1050;
   width: min(320px, calc(100vw - 40px));
+  max-height: 38vh;
+  overflow-y: auto;
   padding: .85rem 1rem;
   border-radius: var(--radius-lg);
   background: rgba(255, 255, 255, .96);
@@ -856,7 +1034,7 @@ input:focus-visible { outline: 3px solid rgba(37, 99, 235, .28); outline-offset:
 }
 
 @media (max-width: 560px) {
-  .op-top-buttons { top: 12px; left: 12px; right: 12px; max-width: none; }
+  .op-map-search { width: calc(100vw - 100px); }
   .op-btn { flex: 1 1 0; }
   .op-vehicle-panel { top: 68px; left: 12px; right: 12px; width: auto; max-height: min(50vh, 420px); }
 }

@@ -48,9 +48,9 @@ services:
       optimization:
         condition: service_healthy
 
-  # Türkiye extract'ini indirir ve Nominatim'e verilmeden önce Ankara kapsamına
-  # keser. Çıktı volume'da kaldığı için sonraki açılışlarda işlem tekrarlanmaz.
-  nominatim-prepare:
+  # Türkiye extract'ini indirir ve Ankara kapsamına keser. Aynı PBF hem
+  # Nominatim hem OSRM tarafından kullanılır; volume doluyken işlem tekrarlanmaz.
+  map-prepare:
     build:
       context: ./infrastructure/nominatim
     environment:
@@ -58,7 +58,7 @@ services:
       # Ankara ilini kapsayan yaklaşık WGS84 bbox: minLon,minLat,maxLon,maxLat.
       ANKARA_BBOX: 30.80,38.60,34.20,40.90
     volumes:
-      - nominatim-import:/import
+      - map-source:/map
     restart: "no"
 
   # İlk çalıştırmada hazırlanmış Ankara PBF'sini otomatik içe aktarır.
@@ -82,7 +82,7 @@ services:
       - nominatim-ankara-data:/var/lib/postgresql/16/main
       # Nominatim başlangıç script'i /nominatim altındaki dosyaların sahipliğini
       # ayarladığı için bu volume salt-okunur bağlanamaz.
-      - nominatim-import:/nominatim/import
+      - map-source:/nominatim/import
     ports:
       - "8081:8080"
     healthcheck:
@@ -92,7 +92,7 @@ services:
       retries: 120
       start_period: 10m
     depends_on:
-      nominatim-prepare:
+      map-prepare:
         condition: service_completed_successfully
 
   optimization:
@@ -135,31 +135,63 @@ services:
     depends_on:
       - backend
 
-  # OSRM verisi image içinde değil, hosttaki infrastructure/osrm/data altında tutulur.
-  # Ön işleme tamamlanmadan bu servisler başlatılmaz.
-  #
+  # Nominatim ile paylaşılan Ankara PBF'sinden car ve foot MLD verilerini üretir.
+  # Tamamlanmış çıktılar named volume'da kalır ve sonraki açılışlarda kullanılır.
+  osrm-prepare:
+    image: personel-servis-optimizasyon-osrm:local
+    build:
+      context: ./infrastructure/osrm
+    profiles: ["routing"]
+    restart: "no"
+    command: /usr/local/bin/prepare-osrm
+    volumes:
+      - map-source:/map:ro
+      - osrm-data:/data
+    depends_on:
+      map-prepare:
+        condition: service_completed_successfully
+
   # --max-table-size varsayılanı 100'dür. Optimizasyon servisi personel ve durak
   # adayı koordinatlarını tek /table isteğinde gönderdiği için varsayılan değer
   # 51 personelde "TooBig" hatası verir.
+  #
   osrm-car:
-    image: ghcr.io/project-osrm/osrm-backend@sha256:3ac496ff8fd7e1af53846179d73d06a97f719c8ad2217d008ed868942398665c
+    image: personel-servis-optimizasyon-osrm:local
     profiles: ["routing"]
     restart: unless-stopped
-    command: osrm-routed --algorithm mld --max-table-size 10000 /data/car-new.osrm
+    command: osrm-routed --algorithm mld --max-table-size 10000 /data/car.osrm
     volumes:
-      - ./infrastructure/osrm/data:/data:ro
+      - osrm-data:/data:ro
     ports:
       - "5002:5000"
+    healthcheck:
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/5000"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    depends_on:
+      osrm-prepare:
+        condition: service_completed_successfully
 
   osrm-foot:
-    image: ghcr.io/project-osrm/osrm-backend@sha256:3ac496ff8fd7e1af53846179d73d06a97f719c8ad2217d008ed868942398665c
+    image: personel-servis-optimizasyon-osrm:local
     profiles: ["routing"]
     restart: unless-stopped
     command: osrm-routed --algorithm mld --max-table-size 10000 /data/foot.osrm
     volumes:
-      - ./infrastructure/osrm/data:/data:ro
+      - osrm-data:/data:ro
     ports:
       - "5001:5000"
+    healthcheck:
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/5000"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    depends_on:
+      osrm-prepare:
+        condition: service_completed_successfully
 
   vroom:
     image: vroomvrp/vroom-docker@sha256:2e417553320bf68a25f6614ba8bdc31b0b2fc1172f8c25518c4656f488031c2a
@@ -172,9 +204,11 @@ services:
     ports:
       - "3000:3000"
     depends_on:
-      - osrm-car
+      osrm-car:
+        condition: service_healthy
 
 volumes:
   postgres-app-data:
   nominatim-ankara-data:
-  nominatim-import:
+  map-source:
+  osrm-data:

@@ -12,7 +12,7 @@ type StatusStripProps = {
 
 export function StatusStrip({ tone, message, warnings, unassignedPersonCount, stopSummary }: StatusStripProps) {
   return (
-    <div className={`op-status-strip op-status-${tone}`} aria-live="polite">
+    <div className={`op-status-strip op-scroll op-status-${tone}`} aria-live="polite">
       <div className="op-status-row">
         <span className="op-status-icon" aria-hidden="true" />
         <span>{message}</span>
