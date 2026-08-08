@@ -357,8 +357,7 @@ export interface components {
         Vehicle: {
             /** @description Servisin sistem içindeki benzersiz adı. */
             id: string;
-            /** @enum {integer} */
-            capacity: 18 | 30 | 46;
+            capacity: number;
             start?: components["schemas"]["Coordinate"] | null;
             plate?: string | null;
             reservedSeats: number;
@@ -487,6 +486,11 @@ export interface components {
             arrivalSeconds: number;
             /** @description Varış saati `arrivalDeadline` değerini aşmıyorsa true. */
             deadlineMet: boolean;
+            /**
+             * @description Güzergâhın kestiği halka kapalı alanların adları. Normalde boştur;
+             *     dolu gelmesi rota grafiğinin bu alanı henüz kapatmadığını gösterir.
+             */
+            restrictedAreasCrossed?: string[];
         };
         ScenarioResult: {
             /** Format: uuid */

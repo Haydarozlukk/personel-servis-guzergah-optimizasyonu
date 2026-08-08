@@ -29,9 +29,12 @@ services:
       Services__VroomUrl: ${VROOM_URL}
       Geocoding__BaseUrl: ${GEOCODING_URL:-http://nominatim:8080}
       Cors__AllowedOrigins: ${ALLOWED_ORIGINS:-http://localhost:5173}
+      RestrictedAreas__FilePath: /config/restricted-areas.geojson
       BootstrapAdmin__Email: ${BOOTSTRAP_ADMIN_EMAIL:-admin@servis.com}
       BootstrapAdmin__Password: ${BOOTSTRAP_ADMIN_PASSWORD:-Admin123456!}
       BootstrapAdmin__DisplayName: ${BOOTSTRAP_ADMIN_DISPLAY_NAME:-Sistem Yöneticisi}
+    volumes:
+      - ./infrastructure/restricted-areas.geojson:/config/restricted-areas.geojson:ro
     ports:
       - "8080:8080"
     healthcheck:
@@ -48,8 +51,9 @@ services:
       optimization:
         condition: service_healthy
 
-  # Türkiye extract'ini indirir ve Ankara kapsamına keser. Aynı PBF hem
-  # Nominatim hem OSRM tarafından kullanılır; volume doluyken işlem tekrarlanmaz.
+  # Türkiye extract'ini indirir ve Ankara kapsamına keser. Nominatim ham PBF'i,
+  # OSRM ise halka kapalı alanları maskelenmiş ankara-routing.osm.pbf'i kullanır.
+  # Volume doluyken işlem tekrarlanmaz.
   map-prepare:
     build:
       context: ./infrastructure/nominatim
@@ -59,6 +63,7 @@ services:
       ANKARA_BBOX: 30.80,38.60,34.20,40.90
     volumes:
       - map-source:/map
+      - ./infrastructure/restricted-areas.geojson:/config/restricted-areas.geojson:ro
     restart: "no"
 
   # İlk çalıştırmada hazırlanmış Ankara PBF'sini otomatik içe aktarır.

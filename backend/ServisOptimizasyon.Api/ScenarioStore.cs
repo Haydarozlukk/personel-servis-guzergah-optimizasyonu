@@ -135,6 +135,8 @@ public sealed class PostgresScenarioStore(NpgsqlDataSource dataSource) : IScenar
         ALTER TABLE scenario_vehicles ALTER COLUMN start_location DROP NOT NULL;
         ALTER TABLE scenario_vehicles ADD COLUMN IF NOT EXISTS plate text;
         ALTER TABLE scenario_vehicles ADD COLUMN IF NOT EXISTS reserved_seats integer NOT NULL DEFAULT 0;
+        ALTER TABLE scenario_routes
+          ADD COLUMN IF NOT EXISTS restricted_areas_crossed text[] NOT NULL DEFAULT '{}';
         """;
 
     public async Task EnsureSchemaAsync(CancellationToken cancellationToken)
@@ -462,8 +464,8 @@ public sealed class PostgresScenarioStore(NpgsqlDataSource dataSource) : IScenar
                 """
                 INSERT INTO scenario_routes
                     (scenario_id, vehicle_id, distance_meters, duration_seconds, load,
-                     arrival_seconds, deadline_met, geometry)
-                VALUES (@id, @vehicle, @distance, @duration, @load, @arrival, @met, @geometry)
+                     arrival_seconds, deadline_met, geometry, restricted_areas_crossed)
+                VALUES (@id, @vehicle, @distance, @duration, @load, @arrival, @met, @geometry, @restricted)
                 """,
                 connection,
                 transaction))
@@ -476,6 +478,7 @@ public sealed class PostgresScenarioStore(NpgsqlDataSource dataSource) : IScenar
                 command.Parameters.AddWithValue("arrival", route.ArrivalSeconds);
                 command.Parameters.AddWithValue("met", route.DeadlineMet);
                 command.Parameters.AddWithValue("geometry", route.Geometry);
+                command.Parameters.AddWithValue("restricted", route.RestrictedAreasCrossed.ToArray());
                 await command.ExecuteNonQueryAsync(cancellationToken);
             }
 
@@ -786,7 +789,8 @@ public sealed class PostgresScenarioStore(NpgsqlDataSource dataSource) : IScenar
 
         await using (var command = new NpgsqlCommand(
             """
-            SELECT vehicle_id, distance_meters, duration_seconds, load, arrival_seconds, deadline_met, geometry
+            SELECT vehicle_id, distance_meters, duration_seconds, load, arrival_seconds, deadline_met,
+                   geometry, restricted_areas_crossed
             FROM scenario_routes WHERE scenario_id = @id ORDER BY vehicle_id
             """,
             connection))
@@ -809,7 +813,10 @@ public sealed class PostgresScenarioStore(NpgsqlDataSource dataSource) : IScenar
                     vehicleSteps.Select(step => step.StopId).ToList(),
                     vehicleSteps,
                     reader.GetInt32(4),
-                    reader.GetBoolean(5)));
+                    reader.GetBoolean(5))
+                {
+                    RestrictedAreasCrossed = [.. reader.GetFieldValue<string[]>(7)],
+                });
             }
         }
 

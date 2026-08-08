@@ -1,10 +1,11 @@
-import { Fragment, useEffect, useMemo, useRef } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import L from 'leaflet'
 import {
   Circle,
   MapContainer,
   Marker,
   Pane,
+  Polygon,
   Polyline,
   Popup,
   TileLayer,
@@ -14,7 +15,7 @@ import {
   useMapEvents,
 } from 'react-leaflet'
 import type { PersonPoint } from '../lib/person'
-import type { ScenarioStop, ScenarioVehicle } from '../lib/api'
+import { getRestrictedAreas, type ScenarioStop, type ScenarioVehicle } from '../lib/api'
 import type { RouteLike } from '../lib/routeLike'
 import { decodePolyline } from '../lib/polyline'
 import { routeColors } from '../lib/colors'
@@ -166,6 +167,35 @@ export function toLeafletLatLng(location: number[]): [number, number] | null {
   return [a, b]
 }
 
+type RestrictedAreaShape = { id: string; name: string; rings: [number, number][][] }
+
+/// GeoJSON halkaları [lon, lat] sırasındadır; Leaflet [lat, lng] bekler.
+function useRestrictedAreas(): RestrictedAreaShape[] {
+  const [areas, setAreas] = useState<RestrictedAreaShape[]>([])
+
+  useEffect(() => {
+    let cancelled = false
+    getRestrictedAreas()
+      .then((collection) => {
+        if (cancelled) return
+        setAreas(collection.features.flatMap((feature) => {
+          const polygons = feature.geometry.type === 'Polygon'
+            ? [feature.geometry.coordinates as number[][][]]
+            : (feature.geometry.coordinates as number[][][][])
+          return polygons.map((polygon) => ({
+            id: feature.properties.id,
+            name: feature.properties.name,
+            rings: polygon.map((ring) => ring.map(([lon, lat]) => [lat, lon] as [number, number])),
+          }))
+        }))
+      })
+      .catch(() => setAreas([]))
+    return () => { cancelled = true }
+  }, [])
+
+  return areas
+}
+
 function MapFlyToHandler({ location }: { location?: number[] | null }) {
   const map = useMap()
   useEffect(() => {
@@ -191,6 +221,7 @@ export function ScenarioMap({
   onMoveStopLocation,
   onMoveVehicleStart,
 }: ScenarioMapProps) {
+  const restrictedAreas = useRestrictedAreas()
   const stopById = useMemo(
     () => new Map((realStops ?? []).map((stop) => [stop.id, stop])),
     [realStops],
@@ -232,9 +263,19 @@ export function ScenarioMap({
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
         />
+        {restrictedAreas.map((area) => (
+          <Polygon
+            key={area.id}
+            positions={area.rings}
+            pathOptions={{ color: '#dc2626', weight: 1.5, fillOpacity: 0.12, dashArray: '4 4' }}
+          >
+            <Tooltip sticky>{area.name} · servise kapalı alan</Tooltip>
+          </Polygon>
+        ))}
         {routes.map((route, index) => {
           const positions = positionsByVehicle.get(route.vehicleId) ?? []
           const isSelected = routes.length === 1
+          const crossings = route.restrictedAreasCrossed ?? []
 
           return (
             positions.length > 1 && (
@@ -242,10 +283,10 @@ export function ScenarioMap({
                 key={route.vehicleId}
                 positions={positions}
                 pathOptions={{
-                  color: routeColors[index % routeColors.length],
+                  color: crossings.length > 0 ? '#dc2626' : routeColors[index % routeColors.length],
                   weight: isSelected ? 7 : 5,
                   opacity: 0.85,
-                  dashArray: route.geometry ? undefined : '8 8',
+                  dashArray: crossings.length > 0 ? '12 6' : route.geometry ? undefined : '8 8',
                 }}
               >
                 <Tooltip sticky>
@@ -253,6 +294,12 @@ export function ScenarioMap({
                   {route.geometry
                     ? `${(route.distanceMeters / 1000).toFixed(1)} km · ${Math.round(route.durationSeconds / 60)} dk`
                     : 'manuel durak sırası'}
+                  {crossings.length > 0 && (
+                    <>
+                      <br />
+                      Uyarı: halka kapalı alandan geçiyor ({crossings.join(', ')})
+                    </>
+                  )}
                 </Tooltip>
               </Polyline>
             )

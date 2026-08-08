@@ -176,7 +176,14 @@ public sealed record RouteResult(
     List<string> StopIds,
     List<RouteStepResult> Steps,
     int ArrivalSeconds,
-    bool DeadlineMet);
+    bool DeadlineMet)
+{
+    /// <summary>
+    /// Rotanın kestiği halka kapalı alanların adları. Normalde boştur; dolu
+    /// gelmesi OSRM grafiğinin bu alanı henüz kapatmadığını gösterir.
+    /// </summary>
+    public List<string> RestrictedAreasCrossed { get; init; } = [];
+}
 
 /// <summary>
 /// Orkestratörün ürettiği, henüz kalıcılaştırılmamış sonuç.

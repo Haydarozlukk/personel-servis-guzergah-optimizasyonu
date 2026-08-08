@@ -71,6 +71,7 @@ public class ScenarioOrchestratorTests
         var orchestrator = new ScenarioOrchestrator(
             optimizationClient,
             vroomClient,
+            RestrictedAreaChecker.Empty,
             Options.Create(new OptimizationOptions()),
             NullLogger<ScenarioOrchestrator>.Instance);
 
@@ -341,6 +342,7 @@ public class ScenarioOrchestratorTests
                 BaseAddress = new Uri("http://optimization:8000"),
             }),
             new VroomClient(new HttpClient(vroomHandler) { BaseAddress = new Uri("http://vroom:3000") }),
+            RestrictedAreaChecker.Empty,
             Options.Create(new OptimizationOptions()),
             NullLogger<ScenarioOrchestrator>.Instance);
 

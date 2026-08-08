@@ -117,6 +117,18 @@ paths:
                 $ref: '#/components/schemas/ScenarioResult'
         '404':
           description: Senaryo bulunamadı.
+  /api/v1/restricted-areas:
+    get:
+      summary: Servis rotalarına kapalı alanların sınırlarını döner.
+      description: >-
+        Kampüs ve askeri alan gibi halka kapalı bölgelerin GeoJSON sınırları.
+        Arayüz bu alanları haritada katman olarak gösterir.
+      responses:
+        '200':
+          description: FeatureCollection biçiminde kapalı alan sınırları.
+          content:
+            application/geo+json:
+              schema: { type: object }
   /api/v1/stops/generate:
     post:
       summary: Optimizasyon servisinin durak üretim sözleşmesi.
@@ -182,7 +194,7 @@ components:
         id:
           type: string
           description: Servisin sistem içindeki benzersiz adı.
-        capacity: { type: integer, enum: [18, 30, 46] }
+        capacity: { type: integer, minimum: 1 }
         start:
           oneOf:
             - $ref: '#/components/schemas/Coordinate'
@@ -354,6 +366,12 @@ components:
         deadlineMet:
           type: boolean
           description: Varış saati `arrivalDeadline` değerini aşmıyorsa true.
+        restrictedAreasCrossed:
+          type: array
+          description: >-
+            Güzergâhın kestiği halka kapalı alanların adları. Normalde boştur;
+            dolu gelmesi rota grafiğinin bu alanı henüz kapatmadığını gösterir.
+          items: { type: string }
     ScenarioResult:
       type: object
       required: [id, name, status, workplace, persons, vehicles, stops, routes, unassignedPersonIds, deadlineSeconds]

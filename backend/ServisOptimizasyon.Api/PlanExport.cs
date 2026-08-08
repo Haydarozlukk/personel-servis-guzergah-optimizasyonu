@@ -163,33 +163,13 @@ public static class PlanExport
 
     private static List<(double Lat, double Lon)> RoutePoints(ScenarioResult plan, RouteResult route)
     {
-        var decoded = DecodePolyline(route.Geometry);
+        var decoded = PolylineCodec.Decode(route.Geometry);
         return decoded.Count > 0
             ? decoded
             : OrderedStops(plan, route)
                 .Select(stop => (Lat: stop.Location[1], Lon: stop.Location[0]))
                 .Append((plan.Workplace[1], plan.Workplace[0]))
                 .ToList();
-    }
-
-    private static List<(double Lat, double Lon)> DecodePolyline(string encoded)
-    {
-        var points = new List<(double, double)>();
-        var index = 0; var lat = 0; var lon = 0;
-        while (index < encoded.Length)
-        {
-            lat += DecodeValue(encoded, ref index);
-            lon += DecodeValue(encoded, ref index);
-            points.Add((lat / 1e5, lon / 1e5));
-        }
-        return points;
-    }
-
-    private static int DecodeValue(string encoded, ref int index)
-    {
-        var result = 0; var shift = 0; int value;
-        do { value = encoded[index++] - 63; result |= (value & 0x1f) << shift; shift += 5; } while (value >= 0x20);
-        return (result & 1) != 0 ? ~(result >> 1) : result >> 1;
     }
 
     private static string F(double value) => value.ToString("0.######", CultureInfo.InvariantCulture);
