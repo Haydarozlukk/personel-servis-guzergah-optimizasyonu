@@ -7,4 +7,5 @@ export type RouteLike = {
   load: number
   geometry: string
   stopIds?: string[]
+  restrictedAreasCrossed?: string[]
 }

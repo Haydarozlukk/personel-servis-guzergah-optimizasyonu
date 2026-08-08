@@ -112,6 +112,19 @@ export async function downloadImportTemplate(): Promise<void> {
   URL.revokeObjectURL(url)
 }
 
+export type RestrictedAreaCollection = {
+  features: Array<{
+    properties: { id: string; name: string }
+    geometry: { type: 'Polygon' | 'MultiPolygon'; coordinates: number[][][] | number[][][][] }
+  }>
+}
+
+export async function getRestrictedAreas(): Promise<RestrictedAreaCollection> {
+  const response = await fetch(`${apiBaseUrl}/api/v1/restricted-areas`, { credentials: 'include' })
+  if (!response.ok) throw new Error(await parseErrorMessage(response))
+  return response.json()
+}
+
 export async function getScenarioResult(scenarioId: string): Promise<ScenarioResult | null> {
   const response = await fetch(`${apiBaseUrl}/api/v1/scenarios/${scenarioId}`, { credentials: 'include' })
   if (response.status === 404) return null

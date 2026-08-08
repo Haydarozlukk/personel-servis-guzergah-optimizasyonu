@@ -80,6 +80,12 @@ builder.Services.AddHttpClient<OsrmCarClient>(client =>
     client.Timeout = TimeSpan.FromSeconds(15);
 });
 
+var restrictedAreasPath = builder.Configuration["RestrictedAreas:FilePath"];
+var restrictedAreaChecker = File.Exists(restrictedAreasPath)
+    ? RestrictedAreaChecker.Load(restrictedAreasPath!)
+    : RestrictedAreaChecker.Empty;
+builder.Services.AddSingleton(restrictedAreaChecker);
+
 builder.Services.AddScoped<ScenarioOrchestrator>();
 builder.Services.AddSingleton<ScenarioQueue>();
 builder.Services.AddHostedService<ScenarioWorker>();
@@ -116,6 +122,19 @@ if (allowedOrigins.Length == 0)
     app.Logger.LogWarning(
         "Cors:AllowedOrigins tanımlı değil; tüm kaynaklara izin veriliyor. "
         + "Üretim benzeri ortamda ALLOWED_ORIGINS ayarlanmalıdır.");
+}
+
+if (restrictedAreaChecker.Areas.Count == 0)
+{
+    app.Logger.LogWarning(
+        "Halka kapalı alan tanımı yüklenemedi ({Path}); rotalar bu alanlara karşı denetlenmeyecek.",
+        restrictedAreasPath);
+}
+else
+{
+    app.Logger.LogInformation(
+        "{Count} halka kapalı alan yüklendi.",
+        restrictedAreaChecker.Areas.Count);
 }
 
 await EnsureSchemaWithRetryAsync(app);
@@ -472,12 +491,17 @@ app.MapGet("/api/v1/scenarios/{scenarioId:guid}", async (
         : Results.Ok(result);
 }).RequireAuthorization();
 
+app.MapGet("/api/v1/restricted-areas", (RestrictedAreaChecker restrictedAreas) =>
+    Results.Content(restrictedAreas.GeoJson, "application/geo+json"))
+    .RequireAuthorization();
+
 app.MapPut("/api/v1/scenarios/{scenarioId:guid}/active-plan", async (
     Guid scenarioId,
     ScenarioResult plan,
     IScenarioStore store,
     IPlanVersionStore versions,
     OsrmCarClient osrmClient,
+    RestrictedAreaChecker restrictedAreas,
     CancellationToken cancellationToken) =>
 {
     if (plan.Id != scenarioId)
@@ -517,12 +541,15 @@ app.MapPut("/api/v1/scenarios/{scenarioId:guid}/active-plan", async (
                         Geometry = osrmRes.Value.Geometry,
                         DistanceMeters = osrmRes.Value.DistanceMeters,
                         DurationSeconds = osrmRes.Value.DurationSeconds,
+                        RestrictedAreasCrossed = [.. restrictedAreas.FindCrossings(osrmRes.Value.Geometry)],
                     });
                     continue;
                 }
             }
         }
-        updatedRoutes.Add(route);
+        updatedRoutes.Add(route with {
+            RestrictedAreasCrossed = [.. restrictedAreas.FindCrossings(route.Geometry)],
+        });
     }
 
     var savedPlan = plan with { Routes = updatedRoutes, UpdatedAt = DateTimeOffset.UtcNow };

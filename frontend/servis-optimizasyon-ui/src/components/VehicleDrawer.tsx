@@ -44,7 +44,7 @@ export function VehicleDrawer(props: VehicleDrawerProps) {
   const effectiveCapacity = capacity - reservedSeats
   const capacityReached = personIds.length >= effectiveCapacity
   const invalidCapacityChange = effectiveCapacity < personIds.length
-  const suggestedCapacity = ([18, 30, 46] as const).find((value) => value - reservedSeats >= personIds.length) ?? 46
+  const suggestedCapacity = Math.max(1, personIds.length + reservedSeats)
 
   function passengerSuggestion(personId: string): string | null {
     const person = personMap.get(personId)
@@ -74,13 +74,13 @@ export function VehicleDrawer(props: VehicleDrawerProps) {
         <div className="op-drawer-card-body op-scroll">
           <div className="op-vehicle-editor">
             <label>Plaka<input value={plate} onChange={(event) => setPlate(event.target.value)} /></label>
-            <label>Fiziksel kapasite<select value={capacity} onChange={(event) => {
-              const next = Number(event.target.value)
+            <label>Fiziksel kapasite<input type="number" min={1} step={1} value={capacity} onChange={(event) => {
+              const next = Math.max(1, Math.trunc(event.target.valueAsNumber || 1))
               setCapacity(next)
               if (reservedSeats >= next) setReservedSeats(next - 1)
-            }}><option value={18}>18</option><option value={30}>30</option><option value={46}>46</option></select></label>
-            <label>Boş bırakılacak koltuk<input type="number" min={0} max={capacity - 1} value={reservedSeats} onChange={(event) => setReservedSeats(Math.min(capacity - 1, Math.max(0, Number(event.target.value))))} /></label>
-            <button className="op-btn op-btn-secondary" disabled={invalidCapacityChange} onClick={() => props.onUpdateVehicle({ plate: plate || null, capacity: capacity as ScenarioVehicle['capacity'], reservedSeats, effectiveCapacity })}>Araç ayarını kaydet</button>
+            }} /></label>
+            <label>Boş bırakılacak koltuk<input type="number" min={0} max={capacity - 1} step={1} value={reservedSeats} onChange={(event) => setReservedSeats(Math.min(capacity - 1, Math.max(0, Math.trunc(event.target.valueAsNumber || 0))))} /></label>
+            <button className="op-btn op-btn-secondary" disabled={invalidCapacityChange} onClick={() => props.onUpdateVehicle({ plate: plate || null, capacity, reservedSeats, effectiveCapacity })}>Araç ayarını kaydet</button>
             <button className="op-btn op-btn-danger" disabled={vehicles.length <= 1} onClick={() => confirm(`${vehicleId} silinsin mi? Yolcular servis atanmamış listesine taşınacak.`) && props.onDeleteVehicle()}>Aracı kaldır</button>
           </div>
           <p className={`op-capacity-note${capacityReached ? ' warning' : ''}`}>

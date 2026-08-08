@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-readonly source_pbf=/map/ankara.osm.pbf
+# Halka kapalı alanlardaki yollar access=no ile işaretlenmiş kopya; ham
+# ankara.osm.pbf yalnızca Nominatim'in adres aramasında kullanılır.
+readonly source_pbf=/map/ankara-routing.osm.pbf
 readonly data_dir=/data
 readonly staging_dir=/data/.prepare-tmp
 readonly ready_file=/data/.ready

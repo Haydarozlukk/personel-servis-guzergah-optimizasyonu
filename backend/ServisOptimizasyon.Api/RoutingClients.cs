@@ -116,6 +116,7 @@ public sealed class OsrmCarClient(HttpClient client)
 public sealed class ScenarioOrchestrator(
     OptimizationClient optimizationClient,
     VroomClient vroomClient,
+    RestrictedAreaChecker restrictedAreas,
     IOptions<OptimizationOptions> options,
     ILogger<ScenarioOrchestrator> logger)
 {
@@ -287,13 +288,21 @@ public sealed class ScenarioOrchestrator(
                 stopSteps.Select(step => step.StopId).ToList(),
                 stopSteps,
                 arrivalSeconds,
-                arrivalSeconds <= deadlineSeconds);
+                arrivalSeconds <= deadlineSeconds)
+            {
+                RestrictedAreasCrossed = [.. restrictedAreas.FindCrossings(route.Geometry)],
+            };
         }).ToList();
 
         var deadlineMet = routes.All(route => route.DeadlineMet);
 
         if (!deadlineMet)
             warnings.Add("En az bir araç varış saatini aşıyor.");
+
+        foreach (var route in routes.Where(route => route.RestrictedAreasCrossed.Count > 0))
+            warnings.Add(
+                $"{route.VehicleId} güzergâhı halka kapalı alandan geçiyor: "
+                + $"{string.Join(", ", route.RestrictedAreasCrossed)}.");
 
         logger.LogInformation(
             "Rotalama tamamlandı: {RouteCount} rota, {UnassignedCount} atanamayan personel.",

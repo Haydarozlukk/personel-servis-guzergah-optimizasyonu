@@ -76,6 +76,20 @@ public class ScenarioValidatorTests
     }
 
     [Theory]
+    [InlineData(1)]
+    [InlineData(24)]
+    [InlineData(100)]
+    public void AnyPositiveIntegerCapacityIsAccepted(int capacity)
+    {
+        var errors = ScenarioValidator.Validate(ValidInput() with
+        {
+            Vehicles = [new VehicleInput("vehicle-001", capacity, [32.8597, 39.9334])],
+        });
+
+        Assert.Empty(errors);
+    }
+
+    [Theory]
     [InlineData(181.0, 39.9334)]
     [InlineData(-181.0, 39.9334)]
     [InlineData(32.8597, 91.0)]
