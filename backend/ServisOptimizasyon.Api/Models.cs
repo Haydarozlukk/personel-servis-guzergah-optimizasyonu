@@ -31,6 +31,7 @@ public sealed record VehicleInput(
 public sealed record ScenarioAccepted(Guid Id, string Status);
 
 public sealed record FullReoptimizeRequest(string SnapshotName, ScenarioResult Plan);
+public sealed record GeocodingSuggestion(string Address, double[] Location);
 public sealed record NearbyServiceResult(string VehicleId, double DistanceMeters, string? NearestStopId, int Load, int EffectiveCapacity);
 public sealed record NearbyServicesResponse(string Address, double[] Location, List<NearbyServiceResult> Services);
 

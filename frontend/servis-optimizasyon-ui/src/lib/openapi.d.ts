@@ -289,6 +289,157 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/geocoding/suggestions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Yazılan metne göre kurum içi adres önerileri döner. */
+        get: {
+            parameters: {
+                query?: {
+                    /** @description Aranacak metin. Boşluklar sadeleştirildikten sonra üç karakterden kısa kalan sorgular için boş liste döner. */
+                    query?: string;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description En fazla beş benzersiz adres önerisi; kısa sorgularda boş liste. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["GeocodingSuggestion"][];
+                    };
+                };
+                /** @description Oturum açılması gerekiyor. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Kurum içi geocoding servisine ulaşılamıyor. */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/scenarios/{scenarioId}/nearby-services": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Bir adrese en yakın servis noktalarını araç bazında döner. */
+        get: {
+            parameters: {
+                query: {
+                    address: string;
+                    /** @description Öneriden seçilmiş boylam; latitude ile birlikte verilmelidir. */
+                    longitude?: number;
+                    /** @description Öneriden seçilmiş enlem; longitude ile birlikte verilmelidir. */
+                    latitude?: number;
+                };
+                header?: never;
+                path: {
+                    scenarioId: components["parameters"]["ScenarioId"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Arama konumu ve servislerin bu konuma uzaklıkları. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["NearbyServicesResponse"];
+                    };
+                };
+                400: components["responses"]["ValidationFailed"];
+                /** @description Oturum açılması gerekiyor. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Senaryo bulunamadı. */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/restricted-areas": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Servis rotalarına kapalı alanların sınırlarını döner.
+         * @description Kampüs ve askeri alan gibi halka kapalı bölgelerin GeoJSON sınırları. Arayüz bu alanları haritada katman olarak gösterir.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description FeatureCollection biçiminde kapalı alan sınırları. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/geo+json": Record<string, never>;
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/stops/generate": {
         parameters: {
             query?: never;
@@ -347,6 +498,23 @@ export interface components {
          *     ]
          */
         Coordinate: number[];
+        GeocodingSuggestion: {
+            address: string;
+            location: components["schemas"]["Coordinate"];
+        };
+        NearbyService: {
+            vehicleId: string;
+            /** Format: double */
+            distanceMeters: number;
+            nearestStopId?: string | null;
+            load: number;
+            effectiveCapacity: number;
+        };
+        NearbyServicesResponse: {
+            address: string;
+            location: components["schemas"]["Coordinate"];
+            services: components["schemas"]["NearbyService"][];
+        };
         Person: {
             /** @description Excel içe aktarımında personelin sicil numarası. */
             id: string;
@@ -486,10 +654,7 @@ export interface components {
             arrivalSeconds: number;
             /** @description Varış saati `arrivalDeadline` değerini aşmıyorsa true. */
             deadlineMet: boolean;
-            /**
-             * @description Güzergâhın kestiği halka kapalı alanların adları. Normalde boştur;
-             *     dolu gelmesi rota grafiğinin bu alanı henüz kapatmadığını gösterir.
-             */
+            /** @description Güzergâhın kestiği halka kapalı alanların adları. Normalde boştur; dolu gelmesi rota grafiğinin bu alanı henüz kapatmadığını gösterir. */
             restrictedAreasCrossed?: string[];
         };
         ScenarioResult: {

@@ -10,6 +10,10 @@ function jsonResponse(body: unknown, status = 200): Response {
   })
 }
 
+function notFoundResponse(): Response {
+  return jsonResponse({ message: 'not found' }, 404)
+}
+
 describe('useScenarioSubmission', () => {
   beforeEach(() => {
     vi.stubGlobal('fetch', vi.fn())
@@ -34,6 +38,7 @@ describe('useScenarioSubmission', () => {
     }
     const fetchMock = vi.mocked(fetch)
     fetchMock
+      .mockResolvedValueOnce(notFoundResponse())
       .mockResolvedValueOnce(jsonResponse({ id: 'scenario-3', status: 'queued' }, 202))
       .mockResolvedValueOnce(
         jsonResponse({
@@ -54,7 +59,7 @@ describe('useScenarioSubmission', () => {
     })
 
     await waitFor(() => expect(result.current.scenarioState).toBe('completed'))
-    const [url, options] = fetchMock.mock.calls[0]
+    const [url, options] = fetchMock.mock.calls[1]
     expect(url).toBe('http://localhost:8080/api/v1/scenarios/import')
     expect(options?.method).toBe('POST')
     expect(options?.body).toBeInstanceOf(FormData)
@@ -63,6 +68,7 @@ describe('useScenarioSubmission', () => {
   it('surfaces the backend error message when the scenario fails', async () => {
     const fetchMock = vi.mocked(fetch)
     fetchMock
+      .mockResolvedValueOnce(notFoundResponse())
       .mockResolvedValueOnce(jsonResponse({ id: 'scenario-2', status: 'queued' }, 202))
       .mockResolvedValueOnce(
         jsonResponse({
@@ -94,7 +100,9 @@ describe('useScenarioSubmission', () => {
 
   it('surfaces a network error from the initial POST as a failed state', async () => {
     const fetchMock = vi.mocked(fetch)
-    fetchMock.mockRejectedValueOnce(new TypeError('Failed to fetch'))
+    fetchMock
+      .mockResolvedValueOnce(notFoundResponse())
+      .mockRejectedValueOnce(new TypeError('Failed to fetch'))
 
     const { result } = renderHook(() => useScenarioSubmission())
 

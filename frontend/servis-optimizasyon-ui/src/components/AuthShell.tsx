@@ -98,7 +98,7 @@ export function AuthShell() {
         {user.role === 'admin' && activeTab === 'admin' ? (
           <AdminPanel currentUser={user} />
         ) : (
-          <App currentUser={user} onLogout={handleLogout} />
+          <App onLogout={handleLogout} />
         )}
       </div>
     )

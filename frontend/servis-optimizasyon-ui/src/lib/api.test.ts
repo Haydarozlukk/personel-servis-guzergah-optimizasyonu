@@ -1,5 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { waitForScenarioResult, type ScenarioResult } from './api'
+import {
+  findNearbyServices,
+  getGeocodingSuggestions,
+  waitForScenarioResult,
+  type ScenarioResult,
+} from './api'
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -105,5 +110,52 @@ describe('waitForScenarioResult', () => {
     await vi.advanceTimersByTimeAsync(121000)
 
     await expect(promise).rejects.toThrow('Senaryo sonucu zaman aşımına uğradı.')
+  })
+})
+
+describe('geocoding API', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn())
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('requests address suggestions with credentials and cancellation support', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValueOnce(jsonResponse([
+      { address: 'Koza 1 Caddesi, Ankara', location: [32.81, 39.98] },
+    ]))
+    const controller = new AbortController()
+
+    await getGeocodingSuggestions('koza 1', controller.signal)
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://localhost:8080/api/v1/geocoding/suggestions?query=koza+1',
+      { credentials: 'include', signal: controller.signal },
+    )
+  })
+
+  it('sends selected coordinates to nearby-services', async () => {
+    const fetchMock = vi.mocked(fetch)
+    fetchMock.mockResolvedValueOnce(jsonResponse({
+      address: 'Koza 1 Caddesi, Ankara',
+      location: [32.81, 39.98],
+      services: [],
+    }))
+    const controller = new AbortController()
+
+    await findNearbyServices(
+      'scenario-1',
+      'Koza 1 Caddesi, Ankara',
+      [32.81, 39.98],
+      controller.signal,
+    )
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://localhost:8080/api/v1/scenarios/scenario-1/nearby-services?address=Koza+1+Caddesi%2C+Ankara&longitude=32.81&latitude=39.98',
+      { credentials: 'include', signal: controller.signal },
+    )
   })
 })
