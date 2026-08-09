@@ -649,6 +649,35 @@ app.MapDelete("/api/v1/scenarios/{scenarioId:guid}/versions/{versionId:guid}", a
     await versions.DeleteAsync(scenarioId, versionId, cancellationToken) ? Results.NoContent() : Results.NotFound())
     .RequireAuthorization();
 
+app.MapGet("/api/v1/geocoding/suggestions", async (
+    string? query,
+    IGeocodingService geocoding,
+    CancellationToken cancellationToken) =>
+{
+    try
+    {
+        return Results.Ok(await geocoding.SuggestAsync(query ?? string.Empty, 5, cancellationToken));
+    }
+    catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+    {
+        return Results.Problem(
+            "Adres öneri servisi zaman aşımına uğradı.",
+            statusCode: StatusCodes.Status503ServiceUnavailable);
+    }
+    catch (HttpRequestException)
+    {
+        return Results.Problem(
+            "Adres öneri servisine ulaşılamadı.",
+            statusCode: StatusCodes.Status503ServiceUnavailable);
+    }
+    catch (InvalidOperationException exception)
+    {
+        return Results.Problem(
+            exception.Message,
+            statusCode: StatusCodes.Status503ServiceUnavailable);
+    }
+}).RequireAuthorization();
+
 app.MapGet("/api/v1/scenarios/{scenarioId:guid}/export", async (
     Guid scenarioId,
     IScenarioStore store,
@@ -668,6 +697,8 @@ app.MapGet("/api/v1/scenarios/{scenarioId:guid}/export", async (
 app.MapGet("/api/v1/scenarios/{scenarioId:guid}/nearby-services", async (
     Guid scenarioId,
     string address,
+    double? longitude,
+    double? latitude,
     IScenarioStore store,
     IPlanVersionStore versions,
     IGeocodingService geocoding,
@@ -678,7 +709,19 @@ app.MapGet("/api/v1/scenarios/{scenarioId:guid}/nearby-services", async (
     var plan = await versions.TryGetActivePlanAsync(scenarioId, cancellationToken)
         ?? await store.TryGetResultAsync(scenarioId, cancellationToken);
     if (plan is null) return Results.NotFound();
-    var location = await geocoding.GeocodeAsync(address.Trim(), cancellationToken);
+    GeocodingResult? location;
+    try
+    {
+        location = await GeocodingLocationResolver.ResolveAsync(
+            address.Trim(), longitude, latitude, geocoding, cancellationToken);
+    }
+    catch (ArgumentException exception)
+    {
+        return Results.ValidationProblem(new Dictionary<string, string[]>
+        {
+            ["location"] = [exception.Message],
+        });
+    }
     if (location is null)
         return Results.ValidationProblem(new Dictionary<string, string[]> { ["address"] = ["Adres için koordinat bulunamadı."] });
 

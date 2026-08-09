@@ -33,16 +33,14 @@ export type PlanVersion = {
   isActive: boolean
 }
 
-export type NearbyService = {
-  vehicleId: string
-  distanceMeters: number
-  nearestStopId?: string | null
-  load: number
-  effectiveCapacity: number
-}
+type GeneratedGeocodingSuggestion = components['schemas']['GeocodingSuggestion']
+type GeneratedNearbyServicesResponse = components['schemas']['NearbyServicesResponse']
 
-export type NearbyServicesResponse = {
-  address: string
+export type GeocodingSuggestion = Omit<GeneratedGeocodingSuggestion, 'location'> & {
+  location: Coordinate
+}
+export type NearbyService = components['schemas']['NearbyService']
+export type NearbyServicesResponse = Omit<GeneratedNearbyServicesResponse, 'location' | 'services'> & {
   location: Coordinate
   services: NearbyService[]
 }
@@ -259,9 +257,34 @@ export async function downloadPlanExport(scenarioId: string): Promise<void> {
   URL.revokeObjectURL(url)
 }
 
-export async function findNearbyServices(scenarioId: string, address: string): Promise<NearbyServicesResponse> {
+export async function getGeocodingSuggestions(
+  query: string,
+  signal?: AbortSignal,
+): Promise<GeocodingSuggestion[]> {
+  const parameters = new URLSearchParams({ query })
+  const response = await fetch(`${apiBaseUrl}/api/v1/geocoding/suggestions?${parameters}`, {
+    credentials: 'include',
+    signal,
+  })
+  if (!response.ok) throw new Error(await parseErrorMessage(response))
+  return response.json()
+}
+
+export async function findNearbyServices(
+  scenarioId: string,
+  address: string,
+  location?: Coordinate,
+  signal?: AbortSignal,
+): Promise<NearbyServicesResponse> {
   const query = new URLSearchParams({ address })
-  const response = await fetch(`${apiBaseUrl}/api/v1/scenarios/${scenarioId}/nearby-services?${query}`, { credentials: 'include' })
+  if (location) {
+    query.set('longitude', String(location[0]))
+    query.set('latitude', String(location[1]))
+  }
+  const response = await fetch(`${apiBaseUrl}/api/v1/scenarios/${scenarioId}/nearby-services?${query}`, {
+    credentials: 'include',
+    signal,
+  })
   if (!response.ok) throw new Error(await parseErrorMessage(response))
   return response.json()
 }

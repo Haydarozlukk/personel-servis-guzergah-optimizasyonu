@@ -117,6 +117,61 @@ paths:
                 $ref: '#/components/schemas/ScenarioResult'
         '404':
           description: Senaryo bulunamadı.
+  /api/v1/geocoding/suggestions:
+    get:
+      summary: Yazılan metne göre kurum içi adres önerileri döner.
+      parameters:
+        - name: query
+          in: query
+          required: false
+          description: >-
+            Aranacak metin. Boşluklar sadeleştirildikten sonra üç karakterden
+            kısa kalan sorgular için boş liste döner.
+          schema: { type: string }
+      responses:
+        '200':
+          description: En fazla beş benzersiz adres önerisi; kısa sorgularda boş liste.
+          content:
+            application/json:
+              schema:
+                type: array
+                maxItems: 5
+                items: { $ref: '#/components/schemas/GeocodingSuggestion' }
+        '401':
+          description: Oturum açılması gerekiyor.
+        '503':
+          description: Kurum içi geocoding servisine ulaşılamıyor.
+  /api/v1/scenarios/{scenarioId}/nearby-services:
+    get:
+      summary: Bir adrese en yakın servis noktalarını araç bazında döner.
+      parameters:
+        - $ref: '#/components/parameters/ScenarioId'
+        - name: address
+          in: query
+          required: true
+          schema: { type: string, minLength: 1 }
+        - name: longitude
+          in: query
+          required: false
+          description: Öneriden seçilmiş boylam; latitude ile birlikte verilmelidir.
+          schema: { type: number, format: double, minimum: -180, maximum: 180 }
+        - name: latitude
+          in: query
+          required: false
+          description: Öneriden seçilmiş enlem; longitude ile birlikte verilmelidir.
+          schema: { type: number, format: double, minimum: -90, maximum: 90 }
+      responses:
+        '200':
+          description: Arama konumu ve servislerin bu konuma uzaklıkları.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/NearbyServicesResponse' }
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '401':
+          description: Oturum açılması gerekiyor.
+        '404':
+          description: Senaryo bulunamadı.
   /api/v1/restricted-areas:
     get:
       summary: Servis rotalarına kapalı alanların sınırlarını döner.
@@ -176,6 +231,30 @@ components:
       maxItems: 2
       items: { type: number, format: double }
       example: [32.8597, 39.9334]
+    GeocodingSuggestion:
+      type: object
+      required: [address, location]
+      properties:
+        address: { type: string }
+        location: { $ref: '#/components/schemas/Coordinate' }
+    NearbyService:
+      type: object
+      required: [vehicleId, distanceMeters, load, effectiveCapacity]
+      properties:
+        vehicleId: { type: string }
+        distanceMeters: { type: number, format: double, minimum: 0 }
+        nearestStopId: { type: [string, 'null'] }
+        load: { type: integer, minimum: 0 }
+        effectiveCapacity: { type: integer, minimum: 0 }
+    NearbyServicesResponse:
+      type: object
+      required: [address, location, services]
+      properties:
+        address: { type: string }
+        location: { $ref: '#/components/schemas/Coordinate' }
+        services:
+          type: array
+          items: { $ref: '#/components/schemas/NearbyService' }
     Person:
       type: object
       required: [id, location]

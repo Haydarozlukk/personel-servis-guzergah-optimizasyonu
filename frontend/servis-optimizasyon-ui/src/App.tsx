@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState } from 'react'
 import type { PersonPoint } from './lib/person'
-import { downloadPlanExport, saveActivePlan, type CurrentUser, type NearbyServicesResponse, type ScenarioResult, type ScenarioVehicle } from './lib/api'
+import { downloadPlanExport, saveActivePlan, type NearbyServicesResponse, type ScenarioResult, type ScenarioVehicle } from './lib/api'
 import { useScenarioSubmission } from './hooks/useScenarioSubmission'
 import { ScenarioMap } from './components/ScenarioMap'
 import { ActionMenu } from './components/ActionMenu'
@@ -12,17 +12,16 @@ import { type PendingPerson } from './components/PersonAddSheet'
 import { VehicleDrawer } from './components/VehicleDrawer'
 import { StatusStrip, type StatusTone } from './components/StatusStrip'
 import { routeColors } from './lib/colors'
-import { AdminPanel } from './components/AuthShell'
 import { VersionPanel } from './components/VersionPanel'
 import { UnassignedPanel } from './components/UnassignedPanel'
 import {
-  addManualStop, addUnassignedPerson, addVehicle, addViaPointOnRoute, assignPerson, assignPersonToStop, deleteUnassignedPerson, distributePersonsToPlan,
+  addManualStop, addVehicle, assignPerson, assignPersonToStop, deleteUnassignedPerson, distributePersonsToPlan,
   moveStop, moveStopLocation, moveVehicleStartLocation, removeVehicle, unassignPerson, updateVehicle,
 } from './lib/manualPlan'
 
 type ActiveOverlay = 'none' | 'add'
 
-export function App({ currentUser, onLogout }: { currentUser: CurrentUser; onLogout: () => Promise<void> }) {
+export function App({ onLogout }: { onLogout: () => Promise<void> }) {
   const [activeOverlay, setActiveOverlay] = useState<ActiveOverlay>('none')
   const [selectedVehicleId, setSelectedVehicleId] = useState<string | null>(null)
   const [pendingPersons, setPendingPersons] = useState<PendingPerson[]>([])

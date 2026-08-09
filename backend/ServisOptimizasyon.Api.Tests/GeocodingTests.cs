@@ -145,6 +145,103 @@ public class GeocodingTests
         Assert.Contains("limit=5", handler.LastRequestUri!.Query);
     }
 
+    [Fact]
+    public async Task SuggestionsAreNormalizedLimitedDeduplicatedAndValidated()
+    {
+        var handler = new StubHandler(
+            """
+            [
+              {"lon":"32.8100","lat":"39.9800","display_name":"Koza 1 Caddesi, Çankaya, Ankara"},
+              {"lon":"32.8101","lat":"39.9801","display_name":"koza 1 caddesi, çankaya, ankara"},
+              {"lon":"not-a-number","lat":"39.9800","display_name":"Geçersiz koordinat"},
+              {"lon":"32.8200","lat":"39.9900","display_name":"Koza Sokak, Ankara"}
+            ]
+            """);
+        var client = new HttpClient(handler) { BaseAddress = new Uri("http://geocoding.local/") };
+        var service = new NominatimGeocodingService(
+            client,
+            new GeocodingOptions { BaseUrl = "http://geocoding.local" });
+
+        var result = await service.SuggestAsync("  koza   1  ", 99, CancellationToken.None);
+
+        Assert.Equal(2, result.Count);
+        Assert.Equal([32.8100, 39.9800], result[0].Location);
+        Assert.Equal("Koza Sokak, Ankara", result[1].Address);
+        Assert.Contains("format=jsonv2", handler.LastRequestUri!.Query);
+        Assert.Contains("addressdetails=1", handler.LastRequestUri.Query);
+        Assert.Contains("dedupe=1", handler.LastRequestUri.Query);
+        Assert.Contains("limit=5", handler.LastRequestUri.Query);
+        Assert.Contains("q=koza%201", handler.LastRequestUri.Query);
+    }
+
+    [Fact]
+    public async Task SuggestionsShorterThanThreeCharactersDoNotCallNominatim()
+    {
+        var handler = new StubHandler("[]");
+        var service = new NominatimGeocodingService(
+            new HttpClient(handler),
+            new GeocodingOptions { BaseUrl = "http://geocoding.local" });
+
+        var result = await service.SuggestAsync("ab", 5, CancellationToken.None);
+
+        Assert.Empty(result);
+        Assert.Equal(0, handler.CallCount);
+    }
+
+    [Fact]
+    public async Task SuppliedCoordinatesSkipAddressGeocoding()
+    {
+        var geocoding = new CountingGeocodingService();
+
+        var result = await GeocodingLocationResolver.ResolveAsync(
+            "Koza 1 Caddesi, Ankara",
+            32.81,
+            39.98,
+            geocoding,
+            CancellationToken.None);
+
+        Assert.NotNull(result);
+        Assert.Equal(32.81, result.Longitude);
+        Assert.Equal(39.98, result.Latitude);
+        Assert.Equal(0, geocoding.GeocodeCallCount);
+    }
+
+    [Theory]
+    [InlineData(32.81, null)]
+    [InlineData(null, 39.98)]
+    [InlineData(181.0, 39.98)]
+    public async Task InvalidSuppliedCoordinatesAreRejected(double? longitude, double? latitude)
+    {
+        var geocoding = new CountingGeocodingService();
+
+        await Assert.ThrowsAsync<ArgumentException>(() =>
+            GeocodingLocationResolver.ResolveAsync(
+                "Koza 1 Caddesi, Ankara",
+                longitude,
+                latitude,
+                geocoding,
+                CancellationToken.None));
+
+        Assert.Equal(0, geocoding.GeocodeCallCount);
+    }
+
+    private sealed class CountingGeocodingService : IGeocodingService
+    {
+        public int GeocodeCallCount { get; private set; }
+
+        public Task<GeocodingResult?> GeocodeAsync(string address, CancellationToken cancellationToken)
+        {
+            GeocodeCallCount++;
+            return Task.FromResult<GeocodingResult?>(new(32.8, 39.9, address));
+        }
+
+        public Task<IReadOnlyList<GeocodingSuggestion>> SuggestAsync(
+            string query,
+            int limit,
+            CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyList<GeocodingSuggestion>>([]);
+    }
+
     private sealed class StubHandler(params string[] responseBodies) : HttpMessageHandler
     {
         public int CallCount { get; private set; }

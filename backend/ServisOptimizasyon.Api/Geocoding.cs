@@ -17,6 +17,10 @@ public sealed record GeocodingResult(double Longitude, double Latitude, string D
 public interface IGeocodingService
 {
     Task<GeocodingResult?> GeocodeAsync(string address, CancellationToken cancellationToken);
+    Task<IReadOnlyList<GeocodingSuggestion>> SuggestAsync(
+        string query,
+        int limit,
+        CancellationToken cancellationToken);
 }
 
 /// <summary>
@@ -58,6 +62,47 @@ public sealed class NominatimGeocodingService(
         }
 
         return null;
+    }
+
+    public async Task<IReadOnlyList<GeocodingSuggestion>> SuggestAsync(
+        string query,
+        int limit,
+        CancellationToken cancellationToken)
+    {
+        var normalized = Normalize(query);
+        if (normalized.Length < 3)
+            return [];
+
+        if (string.IsNullOrWhiteSpace(options.BaseUrl))
+            throw new InvalidOperationException(
+                "Geocoding servisi yapılandırılmamış. Geocoding:BaseUrl ayarlanmalıdır.");
+
+        var boundedLimit = Math.Clamp(limit, 1, 5);
+        var queryString = $"search?format=jsonv2&addressdetails=1&dedupe=1&limit={boundedLimit}"
+            + $"&countrycodes={Uri.EscapeDataString(options.CountryCodes)}"
+            + $"&q={Uri.EscapeDataString(normalized)}";
+        var url = new Uri(new Uri(options.BaseUrl.TrimEnd('/') + "/"), queryString);
+        using var response = await client.GetAsync(url, cancellationToken);
+        response.EnsureSuccessStatusCode();
+        var candidates = await response.Content.ReadFromJsonAsync<List<NominatimCandidate>>(
+            cancellationToken: cancellationToken) ?? [];
+
+        var suggestions = new List<GeocodingSuggestion>(boundedLimit);
+        var seenAddresses = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var candidate in candidates)
+        {
+            var address = candidate.DisplayName?.Trim();
+            if (string.IsNullOrWhiteSpace(address) || !seenAddresses.Add(address))
+                continue;
+            if (!TryParseCoordinates(candidate, out var longitude, out var latitude))
+                continue;
+
+            suggestions.Add(new GeocodingSuggestion(address, [longitude, latitude]));
+            if (suggestions.Count == boundedLimit)
+                break;
+        }
+
+        return suggestions;
     }
 
     private static IEnumerable<string> BuildQueries(string address)
@@ -113,8 +158,7 @@ public sealed class NominatimGeocodingService(
 
         foreach (var candidate in candidates.Where(candidate => IsPlausibleMatch(query, candidate.DisplayName)))
         {
-            if (double.TryParse(candidate.Lon, System.Globalization.CultureInfo.InvariantCulture, out var longitude)
-                && double.TryParse(candidate.Lat, System.Globalization.CultureInfo.InvariantCulture, out var latitude))
+            if (TryParseCoordinates(candidate, out var longitude, out var latitude))
                 return new GeocodingResult(longitude, latitude, candidate.DisplayName ?? query);
         }
 
@@ -218,8 +262,58 @@ public sealed class NominatimGeocodingService(
         string.Join(' ', value.Trim().Split(
             [' ', '\t', '\r', '\n'], StringSplitOptions.RemoveEmptyEntries));
 
+    private static bool TryParseCoordinates(
+        NominatimCandidate candidate,
+        out double longitude,
+        out double latitude)
+    {
+        var hasLongitude = double.TryParse(
+                candidate.Lon,
+                System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture,
+                out longitude);
+        var hasLatitude = double.TryParse(
+                candidate.Lat,
+                System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture,
+                out latitude);
+        return hasLongitude
+            && hasLatitude
+            && double.IsFinite(longitude)
+            && double.IsFinite(latitude)
+            && longitude is >= -180 and <= 180
+            && latitude is >= -90 and <= 90;
+    }
+
     private sealed record NominatimCandidate(
         [property: JsonPropertyName("lon")] string Lon,
         [property: JsonPropertyName("lat")] string Lat,
         [property: JsonPropertyName("display_name")] string? DisplayName);
+}
+
+public static class GeocodingLocationResolver
+{
+    public static async Task<GeocodingResult?> ResolveAsync(
+        string address,
+        double? longitude,
+        double? latitude,
+        IGeocodingService geocoding,
+        CancellationToken cancellationToken)
+    {
+        if (longitude.HasValue != latitude.HasValue)
+            throw new ArgumentException("Boylam ve enlem birlikte verilmelidir.");
+
+        if (longitude.HasValue && latitude.HasValue)
+        {
+            if (!double.IsFinite(longitude.Value)
+                || !double.IsFinite(latitude.Value)
+                || longitude.Value is < -180 or > 180
+                || latitude.Value is < -90 or > 90)
+                throw new ArgumentException("Geçerli bir boylam ve enlem verilmelidir.");
+
+            return new GeocodingResult(longitude.Value, latitude.Value, address);
+        }
+
+        return await geocoding.GeocodeAsync(address, cancellationToken);
+    }
 }
