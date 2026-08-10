@@ -698,6 +698,11 @@ input:focus-visible { outline: 3px solid rgba(37, 99, 235, .28); outline-offset:
   stroke-linejoin: round;
 }
 
+/* Bina seviyesindeki öneri, cadde seviyesindekinden ayrılsın. */
+.op-map-search-suggestions button.is-building .op-map-search-pin {
+  stroke: var(--green);
+}
+
 .op-map-search-suggestion-text {
   min-width: 0;
   display: flex;

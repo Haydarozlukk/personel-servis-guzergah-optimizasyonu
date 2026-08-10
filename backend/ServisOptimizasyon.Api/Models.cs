@@ -31,7 +31,20 @@ public sealed record VehicleInput(
 public sealed record ScenarioAccepted(Guid Id, string Status);
 
 public sealed record FullReoptimizeRequest(string SnapshotName, ScenarioResult Plan);
-public sealed record GeocodingSuggestion(string Address, double[] Location);
+/// <summary>
+/// Adres önerisi. <see cref="Address"/> Nominatim'in display_name'i; yapılandırılmış
+/// alanlar arayüzün "3053. Cadde No: 49" biçiminde okunabilir satır kurabilmesi için
+/// var (display_name bina sonuçlarında "49, 3053. Cadde, …" diye numarayla başlıyor).
+/// Nominatim kaydında karşılığı yoksa null kalırlar.
+/// </summary>
+public sealed record GeocodingSuggestion(
+    string Address,
+    double[] Location,
+    string? HouseNumber = null,
+    string? Street = null,
+    string? Neighbourhood = null,
+    string? District = null,
+    string? City = null);
 public sealed record NearbyServiceResult(string VehicleId, double DistanceMeters, string? NearestStopId, int Load, int EffectiveCapacity);
 public sealed record NearbyServicesResponse(string Address, double[] Location, List<NearbyServiceResult> Services);
 

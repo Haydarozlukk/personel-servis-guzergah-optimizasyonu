@@ -62,6 +62,8 @@ describe('MapSearchBar', () => {
     expect(getGeocodingSuggestions).not.toHaveBeenCalled()
   })
 
+  // Bu fixture'larda yapılandırılmış alan yok; test böylece display_name'i virgülden
+  // bölen geriye dönük uyum yolunun regresyon testi olarak duruyor.
   it('loads and displays suggestions after the debounce', async () => {
     const { input } = renderSearch()
 
@@ -111,6 +113,88 @@ describe('MapSearchBar', () => {
       suggestions[1].location,
       expect.any(AbortSignal),
     )
+  })
+
+  describe('structured suggestions', () => {
+    // Gerçek Nominatim cevabına göre: mahalle `suburb`, ilçe `town`, il `state`.
+    const building: GeocodingSuggestion = {
+      address: '49, 3053. Cadde, Yenikent, Yaşamkent Mahallesi, Çankaya, Ankara, 06810, Türkiye',
+      location: [32.6665836, 39.8695189],
+      houseNumber: '49',
+      street: '3053. Cadde',
+      neighbourhood: 'Yaşamkent Mahallesi',
+      district: 'Çankaya',
+      city: 'Ankara',
+    }
+
+    it('renders the street with its building number instead of the raw display name', async () => {
+      vi.mocked(getGeocodingSuggestions).mockResolvedValue([building])
+      const { input } = renderSearch()
+
+      fireEvent.change(input, { target: { value: '3053. Cadde No: 49' } })
+      await finishDebounce()
+
+      expect(screen.getByText('3053. Cadde No: 49')).toBeInTheDocument()
+      expect(screen.getByText('Yaşamkent Mahallesi, Çankaya, Ankara')).toBeInTheDocument()
+    })
+
+    it('drops repeated administrative names from the secondary line', async () => {
+      vi.mocked(getGeocodingSuggestions).mockResolvedValue([
+        { ...building, neighbourhood: 'Çankaya', district: 'Çankaya' },
+      ])
+      const { input } = renderSearch()
+
+      fireEvent.change(input, { target: { value: '3053. Cadde No: 49' } })
+      await finishDebounce()
+
+      expect(screen.getByText('Çankaya, Ankara')).toBeInTheDocument()
+    })
+
+    it('shows a bare street when the result has no building number', async () => {
+      vi.mocked(getGeocodingSuggestions).mockResolvedValue([
+        { ...building, houseNumber: null, address: '3053. Cadde, Çankaya, Ankara' },
+      ])
+      const { input } = renderSearch()
+
+      fireEvent.change(input, { target: { value: '3053. Cadde' } })
+      await finishDebounce()
+
+      expect(screen.getByText('3053. Cadde')).toBeInTheDocument()
+      expect(screen.queryByText(/No:/)).not.toBeInTheDocument()
+    })
+
+    it('marks only building-level suggestions with the building affordance', async () => {
+      vi.mocked(getGeocodingSuggestions).mockResolvedValue([
+        building,
+        { ...building, houseNumber: null, address: '3053. Cadde, Çankaya, Ankara' },
+      ])
+      const { input } = renderSearch()
+
+      fireEvent.change(input, { target: { value: '3053. Cadde' } })
+      await finishDebounce()
+
+      const [buildingOption, streetOption] = screen.getAllByRole('option')
+      expect(buildingOption).toHaveClass('is-building')
+      expect(streetOption).not.toHaveClass('is-building')
+    })
+
+    it('still searches with the raw display name so the backend echo matches', async () => {
+      vi.mocked(getGeocodingSuggestions).mockResolvedValue([building])
+      const { input } = renderSearch()
+      fireEvent.change(input, { target: { value: '3053. Cadde No: 49' } })
+      await finishDebounce()
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole('option', { name: /3053\. Cadde/ }))
+      })
+
+      expect(findNearbyServices).toHaveBeenCalledWith(
+        'scenario-1',
+        building.address,
+        building.location,
+        expect.any(AbortSignal),
+      )
+    })
   })
 
   it('aborts a pending suggestion request when cleared', async () => {

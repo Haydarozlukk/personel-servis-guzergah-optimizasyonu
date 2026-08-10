@@ -12,6 +12,8 @@ import { type PendingPerson } from './components/PersonAddSheet'
 import { VehicleDrawer } from './components/VehicleDrawer'
 import { StatusStrip, type StatusTone } from './components/StatusStrip'
 import { routeColors } from './lib/colors'
+import { routeStopIds } from './lib/routeLike'
+import { buildPersonHomes } from './lib/personHomes'
 import { VersionPanel } from './components/VersionPanel'
 import { UnassignedPanel } from './components/UnassignedPanel'
 import {
@@ -215,12 +217,19 @@ export function App({ onLogout }: { onLogout: () => Promise<void> }) {
   const filteredStops = useMemo(() => {
     if (!realStops) return null
     if (!selectedVehicleId || !selectedRoute) return realStops
-    const routeStopIds = new Set([
-      ...(selectedRoute.steps?.map((step) => step.stopId) ?? []),
-      ...(selectedRoute.stopIds ?? []),
-    ])
-    return realStops.filter((stop) => routeStopIds.has(stop.id))
+    const stopIds = routeStopIds(selectedRoute)
+    return realStops.filter((stop) => stopIds.has(stop.id))
   }, [realStops, selectedVehicleId, selectedRoute])
+
+  // Eşleme filtresiz rotalar/duraklar üzerinden kurulur; seçim süzgeci yalnızca
+  // buildPersonHomes içinde bir kez uygulanır.
+  const personHomes = useMemo(() => buildPersonHomes({
+    persons: scenarioResult?.persons ?? [],
+    stops: realStops ?? [],
+    routes: displayedRoutes,
+    vehicleColors,
+    selectedVehicleId,
+  }), [scenarioResult, realStops, displayedRoutes, vehicleColors, selectedVehicleId])
 
   const filteredVehicles = useMemo(() => {
     if (!selectedVehicleId) return allVehicles
@@ -244,9 +253,12 @@ export function App({ onLogout }: { onLogout: () => Promise<void> }) {
       <ScenarioMap
         routes={selectedVehicleId ? displayedRoutes.filter((r) => r.vehicleId === selectedVehicleId) : displayedRoutes}
         pendingPersons={pendingPersons as PersonPoint[]}
+        personHomes={personHomes}
         realStops={filteredStops}
         workplace={scenarioResult?.workplace ?? null}
         vehicles={filteredVehicles}
+        vehicleColors={vehicleColors}
+        selectedVehicleId={selectedVehicleId}
         pickMode={(activeOverlay === 'add' && isPicking && !draftLocation) || !!stopPickVehicleId}
         focusedLocation={focusedLocation}
         searchMarker={nearbySearch ? { location: nearbySearch.location, address: nearbySearch.address } : null}
