@@ -499,8 +499,19 @@ export interface components {
          */
         Coordinate: number[];
         GeocodingSuggestion: {
+            /** @description Nominatim display_name. Bina sonuçlarında numarayla başlar ("49, 3053. Cadde, …"); okunabilir satır için aşağıdaki yapılandırılmış alanları kullanın. */
             address: string;
             location: components["schemas"]["Coordinate"];
+            /** @description Bina numarası; sonuç cadde seviyesindeyse null. */
+            houseNumber?: string | null;
+            /** @description Cadde/sokak adı (Nominatim `road`/`pedestrian`). */
+            street?: string | null;
+            /** @description Mahalle (Nominatim `suburb`/`city_district`). */
+            neighbourhood?: string | null;
+            /** @description İlçe (Nominatim `town`/`county`). */
+            district?: string | null;
+            /** @description İl (Nominatim `state`/`province`). */
+            city?: string | null;
         };
         NearbyService: {
             vehicleId: string;

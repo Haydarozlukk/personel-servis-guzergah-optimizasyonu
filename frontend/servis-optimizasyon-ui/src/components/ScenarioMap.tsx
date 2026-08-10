@@ -15,6 +15,7 @@ import {
   useMapEvents,
 } from 'react-leaflet'
 import type { PersonPoint } from '../lib/person'
+import type { PersonHome } from '../lib/personHomes'
 import { getRestrictedAreas, type ScenarioStop, type ScenarioVehicle } from '../lib/api'
 import type { RouteLike } from '../lib/routeLike'
 import { decodePolyline } from '../lib/polyline'
@@ -24,9 +25,13 @@ import { getStopDisplayName } from '../lib/stopName'
 type ScenarioMapProps = {
   routes: RouteLike[]
   pendingPersons: PersonPoint[]
+  personHomes: PersonHome[]
   realStops: ScenarioStop[] | null
   workplace: number[] | null
   vehicles: ScenarioVehicle[]
+  /// Araç kimliğinden renge; index'ten türetmek seçim sırasında yanlış renk veriyordu.
+  vehicleColors: Map<string, string>
+  selectedVehicleId?: string | null
   pickMode?: boolean
   focusedLocation?: number[] | null
   searchMarker?: { location: number[]; address: string } | null
@@ -68,6 +73,27 @@ const createStopIcon = (color = '#ffb703', label = '') =>
     iconSize: [22, 22],
     iconAnchor: [11, 11],
   })
+
+// Her ev için ayrı divIcon kurmak yerine renge göre önbelleğe alıyoruz; aynı
+// servisin bütün evleri tek bir ikon nesnesini paylaşıyor.
+const homeIconCache = new Map<string, L.DivIcon>()
+
+const createHomeIcon = (color: string) => {
+  const cached = homeIconCache.get(color)
+  if (cached) return cached
+
+  const icon = L.divIcon({
+    className: 'op-person-home-icon',
+    html: `<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+      <path d="M12 2.5 22.5 11.5 H19.5 V21 H4.5 V11.5 H1.5 Z"
+        fill="${color}" stroke="#ffffff" stroke-width="1.8" stroke-linejoin="round" />
+    </svg>`,
+    iconSize: [18, 18],
+    iconAnchor: [9, 17],
+  })
+  homeIconCache.set(color, icon)
+  return icon
+}
 
 const createVehicleStartIcon = (color = '#2563eb') =>
   L.divIcon({
@@ -211,9 +237,12 @@ function MapFlyToHandler({ location }: { location?: number[] | null }) {
 export function ScenarioMap({
   routes,
   pendingPersons,
+  personHomes,
   realStops,
   workplace,
   vehicles,
+  vehicleColors,
+  selectedVehicleId,
   pickMode = false,
   focusedLocation,
   searchMarker,
@@ -236,13 +265,14 @@ export function ScenarioMap({
 
     return [
       ...(realStops ?? []).map((stop) => [stop.location[1], stop.location[0]] as [number, number]),
+      ...personHomes.map((home) => home.position),
       ...pendingPersons.map((person) => person.position),
       ...vehicles
         .filter((vehicle) => vehicle.start)
         .map((vehicle) => [vehicle.start![1], vehicle.start![0]] as [number, number]),
       ...(workplace ? [[workplace[1], workplace[0]] as [number, number]] : []),
     ]
-  }, [pendingPersons, positionsByVehicle, realStops, vehicles, workplace])
+  }, [pendingPersons, personHomes, positionsByVehicle, realStops, vehicles, workplace])
 
   return (
     <div id="op-map" aria-label="Ankara personel haritası">
@@ -272,9 +302,9 @@ export function ScenarioMap({
             <Tooltip sticky>{area.name} · servise kapalı alan</Tooltip>
           </Polygon>
         ))}
-        {routes.map((route, index) => {
+        {routes.map((route) => {
           const positions = positionsByVehicle.get(route.vehicleId) ?? []
-          const isSelected = routes.length === 1
+          const isSelected = route.vehicleId === selectedVehicleId
           const crossings = route.restrictedAreasCrossed ?? []
 
           return (
@@ -283,7 +313,9 @@ export function ScenarioMap({
                 key={route.vehicleId}
                 positions={positions}
                 pathOptions={{
-                  color: crossings.length > 0 ? '#dc2626' : routeColors[index % routeColors.length],
+                  color: crossings.length > 0
+                    ? '#dc2626'
+                    : vehicleColors.get(route.vehicleId) ?? routeColors[0],
                   weight: isSelected ? 7 : 5,
                   opacity: 0.85,
                   dashArray: crossings.length > 0 ? '12 6' : route.geometry ? undefined : '8 8',
@@ -336,12 +368,12 @@ export function ScenarioMap({
         <Pane name="vehicle-starts" style={{ zIndex: 650 }}>
           {vehicles
             .filter((vehicle) => vehicle.start)
-            .map((vehicle, index) => (
+            .map((vehicle) => (
               <Marker
                 key={`vehicle-start-${vehicle.id}`}
                 position={[vehicle.start![1], vehicle.start![0]]}
                 draggable={!!onMoveVehicleStart}
-                icon={createVehicleStartIcon(routeColors[index % routeColors.length])}
+                icon={createVehicleStartIcon(vehicleColors.get(vehicle.id) ?? routeColors[0])}
                 eventHandlers={{
                   dragend(e) {
                     const latlng = e.target.getLatLng()
@@ -355,6 +387,22 @@ export function ScenarioMap({
                 </Popup>
               </Marker>
             ))}
+        </Pane>
+        {/* Kendi pane'i: adlandırılmış pane'ler preferCanvas'a saygılı ayrı bir
+            renderer alıyor, böylece evler rotaların (400) üstünde, durak
+            işaretçilerinin (600) altında kalıyor. */}
+        <Pane name="person-homes" style={{ zIndex: 450 }}>
+          {personHomes.map((home) => (
+            <Marker
+              key={`home-${home.id}`}
+              position={home.position}
+              icon={createHomeIcon(home.color)}
+            >
+              <Tooltip direction="top" offset={[0, -14]}>
+                {home.name || home.id} · {home.vehicleId ?? 'servis atanmadı'}
+              </Tooltip>
+            </Marker>
+          ))}
         </Pane>
         {pendingPersons.map((person) => (
           <Marker

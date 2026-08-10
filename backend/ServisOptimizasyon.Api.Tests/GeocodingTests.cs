@@ -68,6 +68,10 @@ public class GeocodingTests
 
         Assert.NotNull(result);
         Assert.Equal(2, handler.CallCount);
+        // İlk deneme artık ham adres değil, "No:" eki sadeleştirilmiş hâli — Nominatim
+        // bu biçimde bina seviyesine inebiliyor, "No:" ile inemiyor.
+        Assert.Contains("3053.%20Cadde%2049", handler.RequestUris[0].Query);
+        Assert.DoesNotContain("No%3A", handler.RequestUris[0].Query);
         Assert.DoesNotContain("No%3A%2049", handler.RequestUris[1].Query);
         Assert.Contains("3053.%20Cadde", handler.RequestUris[1].Query);
     }
@@ -188,6 +192,157 @@ public class GeocodingTests
         Assert.Equal(0, handler.CallCount);
     }
 
+    // Aşağıdaki address gövdeleri yerel Nominatim'den (Ankara PBF) dönen gerçek
+    // cevaplardan alındı: mahalle "suburb", ilçe "town", il "state" alanında.
+    private const string HouseCandidate = """
+        {"lon":"32.6665836","lat":"39.8695189",
+         "display_name":"49, 3053. Cadde, Yenikent, Yaşamkent Mahallesi, Çankaya, Ankara, 06810, Türkiye",
+         "address":{"house_number":"49","road":"3053. Cadde","quarter":"Yenikent",
+                    "suburb":"Yaşamkent Mahallesi","town":"Çankaya","state":"Ankara","postcode":"06810"}}
+        """;
+
+    private const string StreetCandidate = """
+        {"lon":"32.6831","lat":"39.8642",
+         "display_name":"3053. Cadde, Yaşamkent Mahallesi, Çankaya, Ankara, Türkiye",
+         "address":{"road":"3053. Cadde","suburb":"Yaşamkent Mahallesi","town":"Çankaya","state":"Ankara"}}
+        """;
+
+    [Fact]
+    public async Task SuggestionsExposeStructuredAddressDetails()
+    {
+        var handler = new StubHandler($"[{HouseCandidate}]");
+        var service = NominatimService(handler);
+
+        var result = await service.SuggestAsync("3053. Cadde No: 49", 5, CancellationToken.None);
+
+        var suggestion = Assert.Single(result);
+        Assert.Equal("49", suggestion.HouseNumber);
+        Assert.Equal("3053. Cadde", suggestion.Street);
+        Assert.Equal("Yaşamkent Mahallesi", suggestion.Neighbourhood);
+        Assert.Equal("Çankaya", suggestion.District);
+        Assert.Equal("Ankara", suggestion.City);
+    }
+
+    [Fact]
+    public async Task SuggestionsFallBackToAlternativeAdministrativeFieldNames()
+    {
+        var handler = new StubHandler("""
+            [{"lon":"32.75","lat":"39.89","display_name":"Erdoğan Yavuzlar Bulvarı, Üniversiteler, Çankaya",
+              "address":{"pedestrian":"Erdoğan Yavuzlar Bulvarı","city_district":"Üniversiteler Mahallesi",
+                         "county":"Çankaya","province":"Ankara"}}]
+            """);
+        var service = NominatimService(handler);
+
+        var result = await service.SuggestAsync("Erdoğan Yavuzlar", 5, CancellationToken.None);
+
+        var suggestion = Assert.Single(result);
+        Assert.Equal("Erdoğan Yavuzlar Bulvarı", suggestion.Street);
+        Assert.Equal("Üniversiteler Mahallesi", suggestion.Neighbourhood);
+        Assert.Equal("Çankaya", suggestion.District);
+        Assert.Equal("Ankara", suggestion.City);
+    }
+
+    [Fact]
+    public async Task StructuredSecondPassRunsWhenFreeTextMissesTheHouseNumber()
+    {
+        var handler = new StubHandler($"[{StreetCandidate}]", $"[{HouseCandidate}]");
+        var service = NominatimService(handler);
+
+        var result = await service.SuggestAsync("3053. Cadde No: 49", 5, CancellationToken.None);
+
+        Assert.Equal(2, handler.CallCount);
+        Assert.Contains("q=", handler.RequestUris[0].Query);
+        // Yapılandırılmış arama q= ile birleştirilemez (Nominatim 400 döner).
+        Assert.Contains("street=49%203053.%20Cadde", handler.RequestUris[1].Query);
+        Assert.DoesNotContain("q=", handler.RequestUris[1].Query);
+        Assert.Equal("49", result[0].HouseNumber);
+    }
+
+    [Fact]
+    public async Task StructuredSecondPassIsSkippedWhenFreeTextAlreadyFoundTheHouseNumber()
+    {
+        var handler = new StubHandler($"[{HouseCandidate}]");
+        var service = NominatimService(handler);
+
+        await service.SuggestAsync("3053. Cadde No: 49", 5, CancellationToken.None);
+
+        Assert.Equal(1, handler.CallCount);
+    }
+
+    [Fact]
+    public async Task StructuredSecondPassIsSkippedWhenNoHouseNumberWasTyped()
+    {
+        var handler = new StubHandler($"[{StreetCandidate}]");
+        var service = NominatimService(handler);
+
+        await service.SuggestAsync("3053. Cadde", 5, CancellationToken.None);
+
+        Assert.Equal(1, handler.CallCount);
+    }
+
+    [Fact]
+    public async Task StructuredSecondPassFailureFallsBackToFreeTextSuggestions()
+    {
+        var handler = new FailingAfterFirstCallHandler($"[{StreetCandidate}]");
+        var service = NominatimService(handler);
+
+        var result = await service.SuggestAsync("3053. Cadde No: 49", 5, CancellationToken.None);
+
+        var suggestion = Assert.Single(result);
+        Assert.Null(suggestion.HouseNumber);
+        Assert.Equal("3053. Cadde", suggestion.Street);
+    }
+
+    [Fact]
+    public async Task ExactHouseNumberIsRankedAboveStreetAndOtherBuildings()
+    {
+        var otherHouse = HouseCandidate
+            .Replace("\"house_number\":\"49\"", "\"house_number\":\"47\"")
+            .Replace("\"display_name\":\"49,", "\"display_name\":\"47,");
+        var handler = new StubHandler($"[{StreetCandidate},{otherHouse},{HouseCandidate}]");
+        var service = NominatimService(handler);
+
+        var result = await service.SuggestAsync("3053. Cadde No: 49", 5, CancellationToken.None);
+
+        Assert.Equal(3, result.Count);
+        Assert.Equal("49", result[0].HouseNumber);   // tam eşleşme
+        Assert.Null(result[1].HouseNumber);          // cadde seviyesi
+        Assert.Equal("47", result[2].HouseNumber);   // yanlış bina en sonda
+    }
+
+    [Fact]
+    public async Task SuggestionOrderIsUntouchedWhenNoHouseNumberWasTyped()
+    {
+        var handler = new StubHandler("""
+            [{"lon":"32.82","lat":"39.99","display_name":"Koza Sokak, Ankara"},
+             {"lon":"32.81","lat":"39.98","display_name":"Koza 1 Caddesi, Çankaya, Ankara"}]
+            """);
+        var service = NominatimService(handler);
+
+        var result = await service.SuggestAsync("koza", 5, CancellationToken.None);
+
+        Assert.Equal("Koza Sokak, Ankara", result[0].Address);
+        Assert.Equal("Koza 1 Caddesi, Çankaya, Ankara", result[1].Address);
+    }
+
+    [Fact]
+    public async Task ApartmentNumberIsNotSentAsTheBuildingNumber()
+    {
+        var handler = new StubHandler("[]");
+        var service = NominatimService(handler);
+
+        await service.SuggestAsync("İnönü Caddesi No:12 D:5", 5, CancellationToken.None);
+
+        Assert.Contains("12", handler.RequestUris[0].Query);
+        Assert.DoesNotContain("D%3A5", handler.RequestUris[0].Query);
+        Assert.Contains("street=12%20", handler.RequestUris[1].Query);
+    }
+
+    private static NominatimGeocodingService NominatimService(HttpMessageHandler handler) =>
+        new(
+            new HttpClient(handler) { BaseAddress = new Uri("http://geocoding.local/") },
+            new GeocodingOptions { BaseUrl = "http://geocoding.local" });
+
     [Fact]
     public async Task SuppliedCoordinatesSkipAddressGeocoding()
     {
@@ -240,6 +395,28 @@ public class GeocodingTests
             int limit,
             CancellationToken cancellationToken) =>
             Task.FromResult<IReadOnlyList<GeocodingSuggestion>>([]);
+    }
+
+    /// <summary>
+    /// İlk çağrıyı yanıtlar, sonrakileri ağ hatasıyla düşürür — yapılandırılmış
+    /// ikinci pass'i desteklemeyen bir Nominatim'i taklit eder.
+    /// </summary>
+    private sealed class FailingAfterFirstCallHandler(string firstResponseBody) : HttpMessageHandler
+    {
+        private int _callCount;
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            if (Interlocked.Increment(ref _callCount) > 1)
+                throw new HttpRequestException("structured search not supported");
+
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(firstResponseBody, Encoding.UTF8, "application/json"),
+            });
+        }
     }
 
     private sealed class StubHandler(params string[] responseBodies) : HttpMessageHandler
