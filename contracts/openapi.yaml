@@ -235,8 +235,28 @@ components:
       type: object
       required: [address, location]
       properties:
-        address: { type: string }
+        address:
+          type: string
+          description: >-
+            Nominatim display_name. Bina sonuçlarında numarayla başlar
+            ("49, 3053. Cadde, …"); okunabilir satır için aşağıdaki
+            yapılandırılmış alanları kullanın.
         location: { $ref: '#/components/schemas/Coordinate' }
+        houseNumber:
+          type: [string, 'null']
+          description: Bina numarası; sonuç cadde seviyesindeyse null.
+        street:
+          type: [string, 'null']
+          description: Cadde/sokak adı (Nominatim `road`/`pedestrian`).
+        neighbourhood:
+          type: [string, 'null']
+          description: Mahalle (Nominatim `suburb`/`city_district`).
+        district:
+          type: [string, 'null']
+          description: İlçe (Nominatim `town`/`county`).
+        city:
+          type: [string, 'null']
+          description: İl (Nominatim `state`/`province`).
     NearbyService:
       type: object
       required: [vehicleId, distanceMeters, load, effectiveCapacity]

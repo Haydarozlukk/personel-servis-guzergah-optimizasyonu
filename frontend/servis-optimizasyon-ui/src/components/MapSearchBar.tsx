@@ -15,9 +15,42 @@ type MapSearchBarProps = {
 const MIN_QUERY_LENGTH = 3
 const SUGGESTION_DEBOUNCE_MS = 300
 
-function addressParts(address: string) {
-  const [primary, ...secondary] = address.split(',').map((part) => part.trim()).filter(Boolean)
-  return { primary: primary || address, secondary: secondary.join(', ') }
+// Nominatim aynı adı birden çok idari alanda tekrarlayabiliyor (ör. hem `suburb`
+// hem `city_district` "Üniversiteler Mahallesi"); tekrarı ayıklamazsak ikincil
+// satır "Yaşamkent, Yaşamkent, Ankara" gibi çıkıyor.
+function joinDistinct(parts: Array<string | null | undefined>) {
+  const seen = new Set<string>()
+  return parts
+    .map((part) => part?.trim())
+    .filter((part): part is string => {
+      if (!part) return false
+      const key = part.toLocaleLowerCase('tr')
+      if (seen.has(key)) return false
+      seen.add(key)
+      return true
+    })
+    .join(', ')
+}
+
+function suggestionLines(suggestion: GeocodingSuggestion) {
+  const street = suggestion.street?.trim()
+  const houseNumber = suggestion.houseNumber?.trim()
+
+  if (street) {
+    return {
+      primary: houseNumber ? `${street} No: ${houseNumber}` : street,
+      secondary: joinDistinct([suggestion.neighbourhood, suggestion.district, suggestion.city]),
+      isBuilding: Boolean(houseNumber),
+    }
+  }
+
+  // Yapılandırılmış alan yoksa eski davranış: display_name'i virgülden böl.
+  const [primary, ...secondary] = suggestion.address.split(',').map((part) => part.trim()).filter(Boolean)
+  return {
+    primary: primary || suggestion.address,
+    secondary: secondary.join(', '),
+    isBuilding: Boolean(houseNumber),
+  }
 }
 
 function isAbortError(reason: unknown) {
@@ -223,7 +256,7 @@ export function MapSearchBar({ scenarioId, result, onResult }: MapSearchBarProps
         <span className="op-map-search-lens" aria-hidden="true" />
         <input
           value={address}
-          placeholder="Bir konum arayın…"
+          placeholder="Adres, cadde veya bina no arayın…"
           role="combobox"
           aria-autocomplete="list"
           aria-expanded={showSuggestions}
@@ -242,7 +275,11 @@ export function MapSearchBar({ scenarioId, result, onResult }: MapSearchBarProps
       {showSuggestions && (
         <ul id={listboxId} className="op-map-search-suggestions" role="listbox" aria-label="Adres önerileri">
           {suggestions.map((suggestion, index) => {
-            const parts = addressParts(suggestion.address)
+            const parts = suggestionLines(suggestion)
+            const classNames = [
+              activeIndex === index ? 'is-active' : '',
+              parts.isBuilding ? 'is-building' : '',
+            ].filter(Boolean).join(' ')
             return (
               <li key={`${suggestion.location.join('-')}-${suggestion.address}`} role="presentation">
                 <button
@@ -250,13 +287,22 @@ export function MapSearchBar({ scenarioId, result, onResult }: MapSearchBarProps
                   type="button"
                   role="option"
                   aria-selected={activeIndex === index}
-                  className={activeIndex === index ? 'is-active' : undefined}
+                  className={classNames || undefined}
                   onMouseEnter={() => setActiveIndex(index)}
                   onClick={() => selectSuggestion(suggestion)}
                 >
                   <svg className="op-map-search-pin" viewBox="0 0 24 24" aria-hidden="true">
-                    <path d="M12 21s7-6.15 7-12A7 7 0 1 0 5 9c0 5.85 7 12 7 12Z" />
-                    <circle cx="12" cy="9" r="2.4" />
+                    {parts.isBuilding ? (
+                      <>
+                        <rect x="5" y="3" width="14" height="18" rx="1.5" />
+                        <path d="M9 8h2M13 8h2M9 12h2M13 12h2M11 21v-4h2v4" />
+                      </>
+                    ) : (
+                      <>
+                        <path d="M12 21s7-6.15 7-12A7 7 0 1 0 5 9c0 5.85 7 12 7 12Z" />
+                        <circle cx="12" cy="9" r="2.4" />
+                      </>
+                    )}
                   </svg>
                   <span className="op-map-search-suggestion-text">
                     <strong>{parts.primary}</strong>

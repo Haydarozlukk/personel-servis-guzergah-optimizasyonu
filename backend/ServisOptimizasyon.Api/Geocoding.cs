@@ -78,18 +78,39 @@ public sealed class NominatimGeocodingService(
                 "Geocoding servisi yapılandırılmamış. Geocoding:BaseUrl ayarlanmalıdır.");
 
         var boundedLimit = Math.Clamp(limit, 1, 5);
-        var queryString = $"search?format=jsonv2&addressdetails=1&dedupe=1&limit={boundedLimit}"
-            + $"&countrycodes={Uri.EscapeDataString(options.CountryCodes)}"
-            + $"&q={Uri.EscapeDataString(normalized)}";
-        var url = new Uri(new Uri(options.BaseUrl.TrimEnd('/') + "/"), queryString);
-        using var response = await client.GetAsync(url, cancellationToken);
-        response.EnsureSuccessStatusCode();
-        var candidates = await response.Content.ReadFromJsonAsync<List<NominatimCandidate>>(
-            cancellationToken: cancellationToken) ?? [];
+        var parts = TurkishAddressParser.Parse(normalized);
+        var wantedHouseNumber = NormalizeHouseNumber(parts.HouseNumber);
+
+        var candidates = await SearchSuggestionsAsync(
+            $"q={Uri.EscapeDataString(parts.FreeText)}", boundedLimit, cancellationToken);
+
+        // Serbest metin bina seviyesine inemediyse yapılandırılmış aramayı deneriz.
+        // Nominatim structured parametreleri q= ile birlikte 400 döndüğü için bu
+        // ayrı bir çağrı olmak zorunda; en fazla bir ek istek atılır.
+        if (wantedHouseNumber is not null
+            && !string.IsNullOrWhiteSpace(parts.StreetSegment)
+            && !candidates.Any(candidate => HasHouseNumber(candidate, wantedHouseNumber)))
+        {
+            try
+            {
+                var structured = await SearchSuggestionsAsync(
+                    $"street={Uri.EscapeDataString($"{wantedHouseNumber} {parts.StreetSegment}")}",
+                    boundedLimit,
+                    cancellationToken);
+                candidates = [.. structured, .. candidates];
+            }
+            catch (HttpRequestException)
+            {
+                // Yapılandırılmış aramayı desteklemeyen bir Nominatim sürümünde
+                // öneriler hata vermek yerine serbest metin sonucunda kalsın.
+            }
+        }
 
         var suggestions = new List<GeocodingSuggestion>(boundedLimit);
         var seenAddresses = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var candidate in candidates)
+        // OrderByDescending kararlı olduğu için Nominatim'in kendi önem sıralaması
+        // kova içinde korunur; kullanıcı sayı yazmadığında sıra hiç değişmez.
+        foreach (var candidate in candidates.OrderByDescending(c => Rank(c, wantedHouseNumber)))
         {
             var address = candidate.DisplayName?.Trim();
             if (string.IsNullOrWhiteSpace(address) || !seenAddresses.Add(address))
@@ -97,7 +118,14 @@ public sealed class NominatimGeocodingService(
             if (!TryParseCoordinates(candidate, out var longitude, out var latitude))
                 continue;
 
-            suggestions.Add(new GeocodingSuggestion(address, [longitude, latitude]));
+            suggestions.Add(new GeocodingSuggestion(
+                address,
+                [longitude, latitude],
+                candidate.Address?.HouseNumber,
+                candidate.Address?.Street,
+                candidate.Address?.Mahalle,
+                candidate.Address?.Ilce,
+                candidate.Address?.Il));
             if (suggestions.Count == boundedLimit)
                 break;
         }
@@ -105,14 +133,66 @@ public sealed class NominatimGeocodingService(
         return suggestions;
     }
 
+    private async Task<List<NominatimCandidate>> SearchSuggestionsAsync(
+        string queryFragment,
+        int boundedLimit,
+        CancellationToken cancellationToken)
+    {
+        var queryString = $"search?format=jsonv2&addressdetails=1&dedupe=1&limit={boundedLimit}"
+            + $"&countrycodes={Uri.EscapeDataString(options.CountryCodes)}"
+            + $"&{queryFragment}";
+        var url = new Uri(new Uri(options.BaseUrl.TrimEnd('/') + "/"), queryString);
+        using var response = await client.GetAsync(url, cancellationToken);
+        response.EnsureSuccessStatusCode();
+        return await response.Content.ReadFromJsonAsync<List<NominatimCandidate>>(
+            cancellationToken: cancellationToken) ?? [];
+    }
+
+    /// <summary>
+    /// Tam bina eşleşmesi &gt; cadde seviyesi &gt; başka bir bina numarası. Kullanıcı
+    /// 49 yazmışken 47'yi göstermek yanıltıcı; cadde ise dürüstçe daha az kesin.
+    /// </summary>
+    private static int Rank(NominatimCandidate candidate, string? wantedHouseNumber)
+    {
+        if (wantedHouseNumber is null)
+            return 0;
+
+        var actual = NormalizeHouseNumber(candidate.Address?.HouseNumber);
+        if (actual is null)
+            return 2;
+        return actual == wantedHouseNumber ? 3 : 1;
+    }
+
+    private static bool HasHouseNumber(NominatimCandidate candidate, string wantedHouseNumber) =>
+        NormalizeHouseNumber(candidate.Address?.HouseNumber) == wantedHouseNumber;
+
+    /// <summary>"49/A" ile "49A" aynı binadır.</summary>
+    private static string? NormalizeHouseNumber(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return null;
+        var normalized = value
+            .Replace("/", string.Empty, StringComparison.Ordinal)
+            .Replace("-", string.Empty, StringComparison.Ordinal)
+            .Replace(" ", string.Empty, StringComparison.Ordinal);
+        return normalized.Length == 0 ? null : normalized.ToUpperInvariant();
+    }
+
     private static IEnumerable<string> BuildQueries(string address)
     {
-        var withoutBuildingNumber = RemoveBuildingNumber(address);
+        // Ham adres yerine bina no'su sadeleştirilmiş hâliyle başlıyoruz: "No:" eki
+        // Nominatim için eşleşmeyen bir kelime tokenı ve yalnızca skoru düşürüyor,
+        // dolayısıyla ham hâli denemek bir tur kaybettirir. Bina no yoksa parser
+        // metni aynen döndürür ve sorgu listesi bugünküyle birebir aynı kalır.
+        var parts = TurkishAddressParser.Parse(address);
+        var withoutBuildingNumber = parts.HouseNumber is null
+            ? RemoveBuildingNumber(address)
+            : parts.WithoutHouseNumber;
         var standardized = StandardizeAddress(withoutBuildingNumber);
         var streetOnly = RemovePremiseAfterStreetName(standardized);
         var streetFirst = PutStreetFirst(streetOnly);
 
-        return new[] { address, withoutBuildingNumber, standardized, streetOnly, streetFirst }
+        return new[] { parts.FreeText, withoutBuildingNumber, standardized, streetOnly, streetFirst }
             .Where(value => !string.IsNullOrWhiteSpace(value))
             .Distinct(StringComparer.OrdinalIgnoreCase);
     }
@@ -288,7 +368,42 @@ public sealed class NominatimGeocodingService(
     private sealed record NominatimCandidate(
         [property: JsonPropertyName("lon")] string Lon,
         [property: JsonPropertyName("lat")] string Lat,
-        [property: JsonPropertyName("display_name")] string? DisplayName);
+        [property: JsonPropertyName("display_name")] string? DisplayName,
+        [property: JsonPropertyName("address")] NominatimAddress? Address = null);
+
+    /// <summary>
+    /// <c>addressdetails=1</c> cevabındaki <c>address</c> nesnesi. Alan adları yerel
+    /// Nominatim'den (Ankara PBF, IMPORT_STYLE=address) gelen gerçek cevaplara göre
+    /// seçildi; Türkçe kayıtlarda mahalle <c>suburb</c>'te, ilçe <c>town</c>'da,
+    /// il <c>state</c>'te duruyor — <c>quarter</c> ise mahallenin altındaki bir
+    /// semt oluyor ("Yenikent"), o yüzden mahalle için son çare.
+    /// </summary>
+    private sealed record NominatimAddress(
+        [property: JsonPropertyName("house_number")] string? HouseNumber = null,
+        [property: JsonPropertyName("road")] string? Road = null,
+        [property: JsonPropertyName("pedestrian")] string? Pedestrian = null,
+        [property: JsonPropertyName("footway")] string? Footway = null,
+        [property: JsonPropertyName("residential")] string? Residential = null,
+        [property: JsonPropertyName("suburb")] string? Suburb = null,
+        [property: JsonPropertyName("city_district")] string? CityDistrict = null,
+        [property: JsonPropertyName("quarter")] string? Quarter = null,
+        [property: JsonPropertyName("neighbourhood")] string? Neighbourhood = null,
+        [property: JsonPropertyName("town")] string? Town = null,
+        [property: JsonPropertyName("municipality")] string? Municipality = null,
+        [property: JsonPropertyName("county")] string? County = null,
+        [property: JsonPropertyName("district")] string? District = null,
+        [property: JsonPropertyName("state")] string? State = null,
+        [property: JsonPropertyName("province")] string? Province = null,
+        [property: JsonPropertyName("city")] string? City = null)
+    {
+        public string? Street => Coalesce(Road, Pedestrian, Footway, Residential);
+        public string? Mahalle => Coalesce(Suburb, CityDistrict, Quarter, Neighbourhood);
+        public string? Ilce => Coalesce(Town, Municipality, County, District);
+        public string? Il => Coalesce(State, Province, City);
+
+        private static string? Coalesce(params string?[] values) =>
+            values.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value));
+    }
 }
 
 public static class GeocodingLocationResolver
