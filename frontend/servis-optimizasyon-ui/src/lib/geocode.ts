@@ -1,16 +1,18 @@
+import { getGeocodingSuggestions } from './api'
+
 export type GeocodeResult = { lat: number; lon: number }
 
+// Backend'in Ankara'ya özel, IMPORT_STYLE=address ile kurulan yerel Nominatim'i
+// ve TurkishAddressParser'ı üzerinden arar; bina no'ya kadar hassasiyet ve
+// gerçek personel adreslerinin dışarı çıkmaması (kararlar.md) bu sayede sağlanır.
 export async function geocodeAddress(query: string): Promise<GeocodeResult> {
-  let response: Response
+  let suggestions: Awaited<ReturnType<typeof getGeocodingSuggestions>>
   try {
-    response = await fetch(
-      `https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=tr&q=${encodeURIComponent(`${query}, Ankara`)}`,
-    )
+    suggestions = await getGeocodingSuggestions(query)
   } catch {
     throw new Error('Adres aranırken hata oluştu.')
   }
-  if (!response.ok) throw new Error('Adres aranırken hata oluştu.')
-  const data = (await response.json()) as Array<{ lat: string; lon: string }>
-  if (!data.length) throw new Error('Adres bulunamadı, tekrar deneyin.')
-  return { lat: parseFloat(data[0].lat), lon: parseFloat(data[0].lon) }
+  if (!suggestions.length) throw new Error('Adres bulunamadı, tekrar deneyin.')
+  const [longitude, latitude] = suggestions[0].location
+  return { lat: latitude, lon: longitude }
 }
