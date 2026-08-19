@@ -16,6 +16,7 @@ export function ExcelImportSheet({ onSubmit, disabled, isBusy, errorMessage, has
   const [name, setName] = useState('Excel senaryosu')
   const [arrivalDeadline, setArrivalDeadline] = useState('08:30:00')
   const [destinationAddress, setDestinationAddress] = useState('')
+  const [vehicleCount, setVehicleCount] = useState('')
   const [templateError, setTemplateError] = useState('')
   const [mode, setMode] = useState<ImportMode>(hasActivePlan ? 'distribute' : 'full')
 
@@ -28,6 +29,7 @@ export function ExcelImportSheet({ onSubmit, disabled, isBusy, errorMessage, has
       name,
       arrivalDeadline,
       destinationAddress: destinationAddress.trim() || undefined,
+      vehicleCount: vehicleCount.trim() ? Number(vehicleCount) : undefined,
       mode: hasActivePlan ? mode : 'full',
     })
   }
@@ -97,8 +99,24 @@ export function ExcelImportSheet({ onSubmit, disabled, isBusy, errorMessage, has
           onChange={(event) => setDestinationAddress(event.target.value)}
         />
       </label>
+      <label className="op-field-wide">
+        <span>Araç sayısı <small>boş bırakılırsa otomatik hesaplanır</small></span>
+        <input
+          type="number"
+          min={1}
+          step={1}
+          placeholder="Örn. 40"
+          value={vehicleCount}
+          disabled={isBusy}
+          onChange={(event) => setVehicleCount(event.target.value)}
+        />
+      </label>
       {!hasActivePlan && (
-        <p className="op-field-wide op-drawer-note">Başlangıç filosu 18, 30 ve 46 kişilik araçlardan otomatik oluşturulur.</p>
+        <p className="op-field-wide op-drawer-note">
+          {vehicleCount
+            ? `Filo, girdiğiniz ${vehicleCount} araca göre kapasitelendirilir; süre/mesafe sınırları uyarıya çevrilir.`
+            : 'Araç sayısı boşsa 16 kişilik araçlarla, rota süresi/mesafesi sınırlarına göre otomatik oluşturulur.'}
+        </p>
       )}
       <label className="op-field-wide">
         <span>Excel dosyası <small>.xlsx</small></span>

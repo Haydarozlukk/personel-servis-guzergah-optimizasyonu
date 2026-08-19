@@ -395,6 +395,49 @@ function assignedPersonIdsForVehicle(plan: ScenarioResult, vehicleId: string): s
   return route.stopIds.flatMap((id) => stops.get(id)?.assignedPersonIds ?? [])
 }
 
+export type CandidateVehicle = {
+  vehicleId: string
+  distanceMeters: number
+  availableSeats: number
+}
+
+/// Bir yolcuya en yakın, boş koltuğu olan araçları sıralar. Mesafe, aracın
+/// rotasındaki en yakın durağa (rota yoksa çıkış noktasına/işyerine) göre
+/// hesaplanır; "uygun servis" listesini elle atama ekranında göstermek için.
+export function findCandidateVehicles(
+  plan: ScenarioResult,
+  personId: string,
+  limit = 5,
+): CandidateVehicle[] {
+  const person = plan.persons.find((item) => item.id === personId)
+  if (!person) return []
+
+  const stopMap = new Map(plan.stops.map((stop) => [stop.id, stop]))
+  const candidates: CandidateVehicle[] = []
+
+  for (const vehicle of plan.vehicles) {
+    if (!vehicleHasAvailableSeat(plan, vehicle.id)) continue
+    const assigned = assignedPersonIdsForVehicle(plan, vehicle.id).length
+    const availableSeats = vehicle.effectiveCapacity - assigned
+
+    const route = plan.routes.find((item) => item.vehicleId === vehicle.id)
+    const stopLocations = (route?.stopIds ?? [])
+      .map((id) => stopMap.get(id)?.location)
+      .filter((loc): loc is number[] => !!loc)
+    const referenceLocations = stopLocations.length > 0
+      ? stopLocations
+      : [vehicle.start ?? plan.workplace].filter((loc): loc is number[] => !!loc)
+
+    if (referenceLocations.length === 0) continue
+    const distanceMeters = Math.min(
+      ...referenceLocations.map((loc) => haversineDistanceMeters(person.location, loc)),
+    )
+    candidates.push({ vehicleId: vehicle.id, distanceMeters, availableSeats })
+  }
+
+  return candidates.sort((a, b) => a.distanceMeters - b.distanceMeters).slice(0, limit)
+}
+
 export function vehicleHasAvailableSeat(
   plan: ScenarioResult,
   vehicleId: string,
@@ -407,7 +450,7 @@ export function vehicleHasAvailableSeat(
   return assigned.length < vehicle.effectiveCapacity
 }
 
-function haversineDistanceMeters(loc1: number[], loc2: number[]): number {
+export function haversineDistanceMeters(loc1: number[], loc2: number[]): number {
   const [lng1, lat1] = normalizeLngLat(loc1)
   const [lng2, lat2] = normalizeLngLat(loc2)
   const R = 6371000
@@ -630,13 +673,15 @@ export function distributePersonsToPlan(
 
   // Optimize stop order on every route via TSP 2-Opt to ensure no zigzags
   const optimizedRoutes = routes.map((route) => {
-    const vehicle = updatedPlan.vehicles.find((v) => v.id === route.vehicleId)
     const routeStops = route.stopIds
       .map((id) => stops.find((s) => s.id === id))
       .filter((s): s is ScenarioStop => Boolean(s))
+    // Baslangic noktasi acik: aracin sabit bir deposu yok, ilk durak baslangic
+    // noktasi kabul edilir (vehicle.start eski sozlesme icin varis koordinatini
+    // tasir, gercek bir depo degildir - buraya anchor olarak verilmemeli).
     const optimizedStopIds = findOptimalStopOrder(
       routeStops,
-      vehicle?.start ?? null,
+      null,
       updatedPlan.workplace ?? null,
     )
     const orderChanged = optimizedStopIds.some((id, idx) => id !== route.stopIds[idx])

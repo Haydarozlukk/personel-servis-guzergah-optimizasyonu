@@ -399,7 +399,10 @@ app.MapPost("/api/v1/scenarios/import", async (
             + string.Join(" ", geocoded.Skipped),
         ];
 
-    var vehicles = FleetPlanner.Create(geocoded.Persons.Count, importForm.Workplace);
+    int? fixedVehicleCount = int.TryParse(form["vehicleCount"].ToString(), out var requestedVehicleCount) && requestedVehicleCount > 0
+        ? requestedVehicleCount
+        : null;
+    var vehicles = FleetPlanner.Create(geocoded.Persons.Count, importForm.Workplace, fixedVehicleCount);
 
     var input = new ScenarioInput
     {
@@ -410,6 +413,7 @@ app.MapPost("/api/v1/scenarios/import", async (
         Persons = geocoded.Persons,
         Vehicles = vehicles,
         ImportWarnings = importWarnings,
+        FleetSizeIsFixed = fixedVehicleCount is not null,
     };
     var validationErrors = ScenarioValidator.Validate(input);
     if (validationErrors.Count > 0)
@@ -517,11 +521,7 @@ app.MapPut("/api/v1/scenarios/{scenarioId:guid}/active-plan", async (
     {
         if (string.IsNullOrEmpty(route.Geometry) || route.DistanceMeters == 0)
         {
-            var vehicle = plan.Vehicles.FirstOrDefault(v => v.Id == route.VehicleId);
             var waypoints = new List<double[]>();
-
-            if (vehicle?.Start is { Length: 2 })
-                waypoints.Add(vehicle.Start);
 
             foreach (var stopId in route.StopIds)
             {
@@ -762,6 +762,12 @@ static async Task<PersonGeocodingResult> GeocodePersonsAsync(
 
     await Task.WhenAll(rows.Select(async (row, index) =>
     {
+        if (row.Longitude.HasValue && row.Latitude.HasValue)
+        {
+            persons[index] = new PersonInput(row.Id, [row.Longitude.Value, row.Latitude.Value], row.Name);
+            return;
+        }
+
         await gate.WaitAsync(cancellationToken);
         try
         {

@@ -14,7 +14,13 @@ public sealed record ExcelImportResult(
     ScenarioInput? Input,
     Dictionary<string, string[]> Errors);
 
-public sealed record AddressImportRow(int RowNumber, string Id, string Name, string Address);
+public sealed record AddressImportRow(
+    int RowNumber,
+    string Id,
+    string Name,
+    string Address,
+    double? Longitude = null,
+    double? Latitude = null);
 
 public sealed record VehicleAddressRow(int RowNumber, string Id, int Capacity, string Address);
 
@@ -136,6 +142,8 @@ public static class ScenarioExcelImport
             var idColumn = FindColumn(columns, PersonIdHeaders);
             var nameColumn = FindColumn(columns, NameHeaders);
             var addressColumn = FindColumn(columns, AddressHeaders);
+            var longitudeColumn = FindColumn(columns, LongitudeHeaders);
+            var latitudeColumn = FindColumn(columns, LatitudeHeaders);
             if (idColumn is null || nameColumn is null || addressColumn is null)
             {
                 Add(
@@ -161,7 +169,22 @@ public static class ScenarioExcelImport
                 else if (address.Length == 0)
                     Add(errors, "persons", $"{rowNumber}. satırda adres boş.");
                 else
-                    persons.Add(new AddressImportRow(rowNumber, id, name, address));
+                {
+                    // boylam/enlem kolonları doluysa (ör. önceden Google Geocoding API ile
+                    // üretilmiş bir dosya) satır zaten koordinatlı sayılır; geocoding
+                    // servisine hiç sorulmaz (bkz. GeocodePersonsAsync, Program.cs).
+                    double? longitude = null, latitude = null;
+                    if (longitudeColumn is not null && latitudeColumn is not null
+                        && TryReadDouble(sheet.Cell(rowNumber, longitudeColumn.Value), out var lon)
+                        && TryReadDouble(sheet.Cell(rowNumber, latitudeColumn.Value), out var lat)
+                        && ScenarioValidator.IsCoordinate([lon, lat]))
+                    {
+                        longitude = lon;
+                        latitude = lat;
+                    }
+
+                    persons.Add(new AddressImportRow(rowNumber, id, name, address, longitude, latitude));
+                }
             }
 
             if (persons.Count == 0)

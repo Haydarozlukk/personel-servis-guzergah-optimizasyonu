@@ -32,12 +32,14 @@ type ScenarioMapProps = {
   /// Araç kimliğinden renge; index'ten türetmek seçim sırasında yanlış renk veriyordu.
   vehicleColors: Map<string, string>
   selectedVehicleId?: string | null
+  personNameById?: Map<string, string>
   pickMode?: boolean
   focusedLocation?: number[] | null
   searchMarker?: { location: number[]; address: string } | null
   onPickLocation?: (position: [number, number]) => void
   onMoveStopLocation?: (stopId: string, location: [number, number]) => void
   onMoveVehicleStart?: (vehicleId: string, location: [number, number]) => void
+  onSelectVehicle?: (vehicleId: string) => void
 }
 
 const searchPinIcon = L.divIcon({
@@ -52,7 +54,7 @@ const searchPinIcon = L.divIcon({
 
 const WALKING_LIMIT_METERS = 500
 
-const createStopIcon = (color = '#ffb703', label = '') =>
+const createStopIcon = (color = '#ffb703', borderColor = '#cc5d00', label = '') =>
   L.divIcon({
     className: 'op-stop-marker-icon',
     html: `<div style="
@@ -60,7 +62,7 @@ const createStopIcon = (color = '#ffb703', label = '') =>
       height: 22px;
       border-radius: 50%;
       background: ${color};
-      border: 3px solid #cc5d00;
+      border: 3px solid ${borderColor};
       box-shadow: 0 2px 6px rgba(0,0,0,0.35);
       cursor: grab;
       display: flex;
@@ -73,6 +75,12 @@ const createStopIcon = (color = '#ffb703', label = '') =>
     iconSize: [22, 22],
     iconAnchor: [11, 11],
   })
+
+// Kalkış durağı (her rotanın ilk durağı) diğerlerinden ayırt edilsin diye
+// mor tonda; ayrı bir bindirilmiş işaretçi değil, durağın kendi rengi —
+// böylece sürükleme/tıklama/tooltip davranışı bozulmuyor.
+const DEPARTURE_STOP_COLOR = '#a855f7'
+const DEPARTURE_STOP_BORDER = '#5b21b6'
 
 // Her ev için ayrı divIcon kurmak yerine renge göre önbelleğe alıyoruz; aynı
 // servisin bütün evleri tek bir ikon nesnesini paylaşıyor.
@@ -243,12 +251,14 @@ export function ScenarioMap({
   vehicles,
   vehicleColors,
   selectedVehicleId,
+  personNameById,
   pickMode = false,
   focusedLocation,
   searchMarker,
   onPickLocation,
   onMoveStopLocation,
   onMoveVehicleStart,
+  onSelectVehicle,
 }: ScenarioMapProps) {
   const restrictedAreas = useRestrictedAreas()
   const stopById = useMemo(
@@ -259,6 +269,41 @@ export function ScenarioMap({
     () => new Map(routes.map((route) => [route.vehicleId, routePositions(route, stopById, workplace)])),
     [routes, stopById, workplace],
   )
+  const vehicleLabelById = useMemo(
+    () => new Map(vehicles.map((vehicle) => [vehicle.id, vehicle.label || vehicle.id])),
+    [vehicles],
+  )
+  // Her rotanın ilk durağı: farklı renkle "kalkış noktası" olarak işaretlenir.
+  const departureStopIds = useMemo(
+    () => new Set(routes.map((route) => route.stopIds?.[0]).filter((id): id is string => !!id)),
+    [routes],
+  )
+  // Bir durağa tıklandığında hangi aracın rotası seçilecek, bunun için.
+  const vehicleIdByStopId = useMemo(() => {
+    const map = new Map<string, string>()
+    for (const route of routes) {
+      for (const stopId of route.stopIds ?? []) {
+        if (!map.has(stopId)) map.set(stopId, route.vehicleId)
+      }
+    }
+    return map
+  }, [routes])
+  // Aynı konumda (ör. aynı apartmanda) oturan kişilerin ev ikonları üst üste
+  // binmesin diye küçük bir yatay ofsetle yan yana dizilir.
+  const homeGroupIndexById = useMemo(() => {
+    const groups = new Map<string, string[]>()
+    for (const home of personHomes) {
+      const key = `${home.position[0].toFixed(5)},${home.position[1].toFixed(5)}`
+      const ids = groups.get(key) ?? []
+      ids.push(home.id)
+      groups.set(key, ids)
+    }
+    const indexById = new Map<string, { index: number; total: number }>()
+    for (const ids of groups.values()) {
+      ids.forEach((id, index) => indexById.set(id, { index, total: ids.length }))
+    }
+    return indexById
+  }, [personHomes])
   const mapBoundsPoints = useMemo(() => {
     const routePoints = [...positionsByVehicle.values()].flat()
     if (routePoints.length > 0) return routePoints
@@ -322,7 +367,7 @@ export function ScenarioMap({
                 }}
               >
                 <Tooltip sticky>
-                  {route.vehicleId} ·{' '}
+                  {vehicleLabelById.get(route.vehicleId) ?? route.vehicleId} ·{' '}
                   {route.geometry
                     ? `${(route.distanceMeters / 1000).toFixed(1)} km · ${Math.round(route.durationSeconds / 60)} dk`
                     : 'manuel durak sırası'}
@@ -381,9 +426,9 @@ export function ScenarioMap({
                   },
                 }}
               >
-                <Tooltip>{vehicle.id} çıkış noktası (Sürükleyerek taşıyabilirsiniz)</Tooltip>
+                <Tooltip>{vehicle.label || vehicle.id} çıkış noktası (Sürükleyerek taşıyabilirsiniz)</Tooltip>
                 <Popup>
-                  {vehicle.id} · çıkış noktası · kapasite {vehicle.capacity}
+                  {vehicle.label || vehicle.id} · çıkış noktası · kapasite {vehicle.capacity}
                 </Popup>
               </Marker>
             ))}
@@ -392,17 +437,26 @@ export function ScenarioMap({
             renderer alıyor, böylece evler rotaların (400) üstünde, durak
             işaretçilerinin (600) altında kalıyor. */}
         <Pane name="person-homes" style={{ zIndex: 450 }}>
-          {personHomes.map((home) => (
-            <Marker
-              key={`home-${home.id}`}
-              position={home.position}
-              icon={createHomeIcon(home.color)}
-            >
-              <Tooltip direction="top" offset={[0, -14]}>
-                {home.name || home.id} · {home.vehicleId ?? 'servis atanmadı'}
-              </Tooltip>
-            </Marker>
-          ))}
+          {personHomes.map((home) => {
+            const group = homeGroupIndexById.get(home.id)
+            // Aynı noktadaki evleri ~4m aralıkla yan yana kaydır (yaklaşık
+            // 0.00004 derece boylam ~ Ankara enleminde 3-4 metre).
+            const offsetLongitude = group && group.total > 1
+              ? (group.index - (group.total - 1) / 2) * 0.00004
+              : 0
+            const position: [number, number] = [home.position[0], home.position[1] + offsetLongitude]
+            return (
+              <Marker
+                key={`home-${home.id}`}
+                position={position}
+                icon={createHomeIcon(home.color)}
+              >
+                <Tooltip direction="top" offset={[0, -14]}>
+                  {home.name || home.id} · {home.vehicleId ?? 'servis atanmadı'}
+                </Tooltip>
+              </Marker>
+            )
+          })}
         </Pane>
         {pendingPersons.map((person) => (
           <Marker
@@ -427,6 +481,8 @@ export function ScenarioMap({
         ))}
         {realStops?.map((stop) => {
           const center: [number, number] = [stop.location[1], stop.location[0]]
+          const passengerNames = stop.assignedPersonIds.map((id) => personNameById?.get(id) || id)
+          const isDeparture = departureStopIds.has(stop.id)
           return (
             <Fragment key={stop.id}>
               <Circle
@@ -437,16 +493,28 @@ export function ScenarioMap({
               <Marker
                 position={center}
                 draggable={!!onMoveStopLocation}
-                icon={createStopIcon('#ffb703')}
+                icon={isDeparture
+                  ? createStopIcon(DEPARTURE_STOP_COLOR, DEPARTURE_STOP_BORDER)
+                  : createStopIcon('#ffb703')}
                 eventHandlers={{
                   dragend(e) {
                     const latlng = e.target.getLatLng()
                     onMoveStopLocation?.(stop.id, [latlng.lng, latlng.lat])
                   },
+                  click() {
+                    const vehicleId = vehicleIdByStopId.get(stop.id)
+                    if (vehicleId) onSelectVehicle?.(vehicleId)
+                  },
                 }}
               >
+                {(passengerNames.length > 0 || isDeparture) && (
+                  <Tooltip direction="top" offset={[0, -14]}>
+                    {isDeparture && <strong>Kalkış noktası · </strong>}
+                    {passengerNames.join(', ')}
+                  </Tooltip>
+                )}
                 <Popup>
-                  <strong>{getStopDisplayName(stop)}</strong> (Haritada sürükleyerek sokağını değiştirebilirsiniz)
+                  <strong>{getStopDisplayName(stop)}</strong>{isDeparture && ' · Kalkış noktası'} (Haritada sürükleyerek sokağını değiştirebilirsiniz)
                   <br />
                   {stop.assignedPersonIds.length} personel · ort. yürüme{' '}
                   {Math.round(stop.averageWalkingDistanceMeters)} m

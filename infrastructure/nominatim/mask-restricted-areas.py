@@ -33,7 +33,12 @@ THROUGH_HIGHWAY_CLASSES = frozenset(
 # Alanın tamamen içinde kalsalar bile açık bırakılırlar. Yeni bir kayıt eklemeden
 # önce caddenin gerçekten halka açık olduğu doğrulanmalıdır; çalışma sonundaki
 # "denetim" listesi aday isimleri gösterir.
-ALWAYS_OPEN_STREET_NAMES = frozenset({"Necatibey Caddesi"})
+#
+# "Necatibey Caddesi" bilerek buradan çıkarıldı: MSB/Genelkurmay kompleksinin
+# sınırından geçtiği için servis rotalarının bu caddeyi kullanarak hassas
+# bölgeye yaklaşmasına izin veriyordu. Güvenlik gereksinimi, olası citywide
+# rota uzaması riskinden ağır bastığı için artık bu cadde de maskeleniyor.
+ALWAYS_OPEN_STREET_NAMES: frozenset[str] = frozenset()
 
 # Düğümlerinin bu oranı kapalı alanda kalan yol, alanın iç yolu sayılır. Kampüs
 # iç yollarının uçları kapıda dışarıdaki ağa bağlandığı için tam kapsama aranmaz.

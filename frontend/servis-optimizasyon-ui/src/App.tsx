@@ -178,7 +178,9 @@ export function App({ onLogout }: { onLogout: () => Promise<void> }) {
       const route = displayedRoutes.find((r) => r.vehicleId === vehicle.id)
       return {
         id: vehicle.id,
+        label: vehicle.label ?? null,
         capacity: vehicle.capacity,
+        load: route?.load ?? 0,
         routed: !!route,
         color: vehicleColors.get(vehicle.id) ?? routeColors[0],
         summary: route
@@ -231,6 +233,11 @@ export function App({ onLogout }: { onLogout: () => Promise<void> }) {
     selectedVehicleId,
   }), [scenarioResult, realStops, displayedRoutes, vehicleColors, selectedVehicleId])
 
+  const personNameById = useMemo(
+    () => new Map((scenarioResult?.persons ?? []).map((person) => [person.id, person.name || person.id])),
+    [scenarioResult],
+  )
+
   const filteredVehicles = useMemo(() => {
     if (!selectedVehicleId) return allVehicles
     return allVehicles.filter((v) => v.id === selectedVehicleId)
@@ -259,12 +266,14 @@ export function App({ onLogout }: { onLogout: () => Promise<void> }) {
         vehicles={filteredVehicles}
         vehicleColors={vehicleColors}
         selectedVehicleId={selectedVehicleId}
+        personNameById={personNameById}
         pickMode={(activeOverlay === 'add' && isPicking && !draftLocation) || !!stopPickVehicleId}
         focusedLocation={focusedLocation}
         searchMarker={nearbySearch ? { location: nearbySearch.location, address: nearbySearch.address } : null}
         onPickLocation={handleMapPick}
         onMoveStopLocation={handleMoveStopLocation}
         onMoveVehicleStart={handleMoveVehicleStart}
+        onSelectVehicle={handleSelectVehicle}
       />
 
       {activeOverlay === 'none' && (

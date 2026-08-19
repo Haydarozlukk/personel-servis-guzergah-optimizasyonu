@@ -3,6 +3,7 @@ from math import asin, cos, floor, radians, sin, sqrt
 
 from app.models import Person, StopCandidate
 from app.osrm import Coordinate, OsrmFootClient
+from app.overpass import OverpassClient
 
 
 def generate_candidate_seed_locations(
@@ -37,13 +38,38 @@ def generate_candidate_seed_locations(
 async def generate_stop_candidates(
     persons: list[Person],
     osrm: OsrmFootClient,
+    overpass: OverpassClient | None = None,
+    max_walking_distance_meters: float = 500.0,
     minimum_spacing_meters: float = 100.0,
 ) -> list[StopCandidate]:
     seed_locations = generate_candidate_seed_locations(persons)
-    snapped_locations = await osrm.snap_locations(seed_locations)
-    accepted: list[Coordinate] = []
+    if not seed_locations:
+        return []
 
-    for location in sorted({item for item in snapped_locations if item is not None}):
+    resolved: list[Coordinate | None] = [None] * len(seed_locations)
+    fallback_indices: list[int] = []
+
+    if overpass is not None:
+        for index, seed in enumerate(seed_locations):
+            main_road_points = await overpass.find_main_roads_near(
+                seed, radius_meters=max_walking_distance_meters + 100.0
+            )
+            best = _best_within(seed, main_road_points, max_walking_distance_meters)
+            if best is not None:
+                resolved[index] = best
+            else:
+                fallback_indices.append(index)
+    else:
+        fallback_indices = list(range(len(seed_locations)))
+
+    if fallback_indices:
+        fallback_seeds = [seed_locations[index] for index in fallback_indices]
+        snapped = await osrm.snap_locations(fallback_seeds)
+        for index, location in zip(fallback_indices, snapped):
+            resolved[index] = location
+
+    accepted: list[Coordinate] = []
+    for location in sorted({item for item in resolved if item is not None}):
         if all(
             _straight_line_distance_meters(location, existing)
             >= minimum_spacing_meters
@@ -55,6 +81,40 @@ async def generate_stop_candidates(
         StopCandidate(id=f"stop-candidate-{index:03d}", location=location)
         for index, location in enumerate(accepted, start=1)
     ]
+
+
+# Düşük değer = tercih edilir. "Cadde"/"Bulvar" adı taşısa da bir site içi
+# erişim yolu OSM'de genelde residential/living_street/service olarak
+# etiketlidir; yürüme mesafesi içindeyse bile gerçek toplayıcı/ana yol varsa
+# onu tercih ederiz — servis aracı site içine değil ana yola çeker.
+_ROAD_CLASS_RANK = {
+    "trunk": 0,
+    "primary": 1,
+    "secondary": 2,
+    "tertiary": 3,
+    "unclassified": 4,
+    "residential": 5,
+    "living_street": 6,
+    "service": 7,
+}
+_DEFAULT_ROAD_CLASS_RANK = 8
+
+
+def _best_within(
+    origin: Coordinate, points: list[tuple[Coordinate, str]], max_meters: float
+) -> Coordinate | None:
+    reachable = [
+        (location, road_class, distance)
+        for location, road_class in points
+        if (distance := _straight_line_distance_meters(origin, location)) <= max_meters
+    ]
+    if not reachable:
+        return None
+    best_location, _, _ = min(
+        reachable,
+        key=lambda item: (_ROAD_CLASS_RANK.get(item[1], _DEFAULT_ROAD_CLASS_RANK), item[2]),
+    )
+    return best_location
 
 
 def _straight_line_distance_meters(first: Coordinate, second: Coordinate) -> float:

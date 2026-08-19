@@ -14,6 +14,15 @@ public sealed record ScenarioInput
     public required List<VehicleInput> Vehicles { get; init; }
     public List<string> ImportWarnings { get; init; } = [];
 
+    /// <summary>
+    /// Filo boyutu dışarıdan sabit verildiğinde (ör. elde 40 araç var) azami
+    /// rota süresi/mesafesi VROOM'a sert bir pencere olarak dayatılmaz; aksi
+    /// hâlde sınırlı araç sayısıyla bazı kişiler "atanamadı" sayılabilir.
+    /// Otomatik filo boyutlandırmada (<see cref="FleetPlanner"/> varsayılanı)
+    /// bu false kalır ve sıkı süre sınırı geçerli olur.
+    /// </summary>
+    public bool FleetSizeIsFixed { get; init; }
+
     public int DeadlineSeconds => (int)ArrivalDeadline.ToTimeSpan().TotalSeconds;
 }
 
@@ -23,7 +32,8 @@ public sealed record VehicleInput(
     int Capacity,
     double[]? Start = null,
     string? Plate = null,
-    int ReservedSeats = 0)
+    int ReservedSeats = 0,
+    string? Label = null)
 {
     public int EffectiveCapacity => Math.Max(0, Capacity - ReservedSeats);
 }
@@ -211,7 +221,15 @@ public sealed record ScenarioComputation(
     List<UnassignedPersonResult> UnassignedPersons,
     bool DeadlineMet,
     List<string> Warnings,
-    StopGenerationSummary? StopGenerationSummary);
+    StopGenerationSummary? StopGenerationSummary)
+{
+    /// <summary>
+    /// Rotası olan araçlar için semte göre önerilen isim (vehicleId -> etiket).
+    /// Yalnızca kullanıcı henüz elle bir isim vermemişse (mevcut etiket boşsa)
+    /// uygulanır; bkz. <see cref="IScenarioStore.SaveComputationAsync"/>.
+    /// </summary>
+    public Dictionary<string, string> SuggestedVehicleLabels { get; init; } = [];
+}
 
 public sealed record ScenarioResult(
     Guid Id,

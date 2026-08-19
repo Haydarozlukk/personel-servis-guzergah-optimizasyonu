@@ -540,6 +540,8 @@ export interface components {
             start?: components["schemas"]["Coordinate"] | null;
             plate?: string | null;
             reservedSeats: number;
+            /** @description Semte göre önerilen veya elle girilmiş görünen ad. */
+            label?: string | null;
             readonly effectiveCapacity: number;
         };
         ScenarioInput: {

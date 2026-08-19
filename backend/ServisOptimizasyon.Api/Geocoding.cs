@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Net.Http.Json;
+using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 
@@ -21,6 +22,15 @@ public interface IGeocodingService
         string query,
         int limit,
         CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Bir koordinatın mahallesini (bulunamazsa ilçesini) döndürür, servis
+    /// isimlendirme önerisi için. Mahalle tercih edilir çünkü aynı ilçede
+    /// duran onlarca araç aksi hâlde birebir aynı etikete düşer.
+    /// Bulunamazsa veya servis yapılandırılmamışsa null döner; çağıran taraf bunu
+    /// bir hata olarak değil, "öneri üretilemedi" olarak ele almalıdır.
+    /// </summary>
+    Task<string?> ReverseGeocodeDistrictAsync(double[] location, CancellationToken cancellationToken);
 }
 
 /// <summary>
@@ -81,8 +91,18 @@ public sealed class NominatimGeocodingService(
         var parts = TurkishAddressParser.Parse(normalized);
         var wantedHouseNumber = NormalizeHouseNumber(parts.HouseNumber);
 
-        var candidates = await SearchSuggestionsAsync(
-            $"q={Uri.EscapeDataString(parts.FreeText)}", boundedLimit, cancellationToken);
+        // Tek bir serbest metin sorgusu, aradaki bir site/apartman adı gibi
+        // gürültülü kelimeler yüzünden kolayca 0 sonuç dönebiliyor (bkz.
+        // GeocodeAsync.BuildQueries). Aynı basitleştirme zincirini burada da
+        // deneriz; ilk sonuç veren varyantta dururuz.
+        var candidates = new List<NominatimCandidate>();
+        foreach (var variant in BuildQueries(normalized))
+        {
+            candidates = await SearchSuggestionsAsync(
+                $"q={Uri.EscapeDataString(variant)}", boundedLimit, cancellationToken);
+            if (candidates.Count > 0)
+                break;
+        }
 
         // Serbest metin bina seviyesine inemediyse yapılandırılmış aramayı deneriz.
         // Nominatim structured parametreleri q= ile birlikte 400 döndüğü için bu
@@ -93,8 +113,16 @@ public sealed class NominatimGeocodingService(
         {
             try
             {
+                // street= parametresi tek başına il/ilçe bağlamı taşımaz; adresin
+                // geri kalan parçalarını (mahalle/ilçe/il) city= ile ekleriz,
+                // yoksa aynı isimli sokak başka bir şehirde yanlışlıkla eşleşir.
+                var locality = ExtractLocality(parts.WithoutHouseNumber, parts.StreetSegment);
+                var structuredQuery = $"street={Uri.EscapeDataString($"{wantedHouseNumber} {parts.StreetSegment}")}";
+                if (!string.IsNullOrWhiteSpace(locality))
+                    structuredQuery += $"&city={Uri.EscapeDataString(locality)}";
+
                 var structured = await SearchSuggestionsAsync(
-                    $"street={Uri.EscapeDataString($"{wantedHouseNumber} {parts.StreetSegment}")}",
+                    structuredQuery,
                     boundedLimit,
                     cancellationToken);
                 candidates = [.. structured, .. candidates];
@@ -133,6 +161,35 @@ public sealed class NominatimGeocodingService(
         return suggestions;
     }
 
+    public async Task<string?> ReverseGeocodeDistrictAsync(double[] location, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(options.BaseUrl) || location is not { Length: 2 })
+            return null;
+
+        try
+        {
+            var queryString = "reverse?format=jsonv2&addressdetails=1"
+                + $"&lon={location[0].ToString(System.Globalization.CultureInfo.InvariantCulture)}"
+                + $"&lat={location[1].ToString(System.Globalization.CultureInfo.InvariantCulture)}";
+            var url = new Uri(new Uri(options.BaseUrl.TrimEnd('/') + "/"), queryString);
+            using var response = await client.GetAsync(url, cancellationToken);
+            if (!response.IsSuccessStatusCode)
+                return null;
+
+            var candidate = await response.Content.ReadFromJsonAsync<NominatimCandidate>(
+                cancellationToken: cancellationToken);
+            // Mahalle (Yaşamkent, Dikmen…) ilçeden (Çankaya) çok daha ayırt edici;
+            // aynı ilçede duran onlarca araç aksi hâlde birebir aynı etikete düşüyor.
+            return candidate?.Address?.Mahalle ?? candidate?.Address?.Ilce;
+        }
+        catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException or JsonException)
+        {
+            // Servis isimlendirme önerisi kritik değil; reverse geocoding
+            // başarısız olursa sessizce null döner, optimizasyon akışını bozmaz.
+            return null;
+        }
+    }
+
     private async Task<List<NominatimCandidate>> SearchSuggestionsAsync(
         string queryFragment,
         int boundedLimit,
@@ -163,6 +220,20 @@ public sealed class NominatimGeocodingService(
         return actual == wantedHouseNumber ? 3 : 1;
     }
 
+    /// <summary>
+    /// "Bayrak Sokak No:55, Keçiören, Ankara" içinden sokak parçası hariç kalan
+    /// "Keçiören, Ankara" bölümünü döndürür; yapılandırılmış aramada city= olarak
+    /// kullanılır ki aynı isimli sokak başka bir ilde yanlışlıkla eşleşmesin.
+    /// </summary>
+    private static string ExtractLocality(string withoutHouseNumber, string streetSegment)
+    {
+        var remaining = withoutHouseNumber
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Where(segment => !string.Equals(segment, streetSegment, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        return string.Join(", ", remaining);
+    }
+
     private static bool HasHouseNumber(NominatimCandidate candidate, string wantedHouseNumber) =>
         NormalizeHouseNumber(candidate.Address?.HouseNumber) == wantedHouseNumber;
 
@@ -189,7 +260,14 @@ public sealed class NominatimGeocodingService(
             ? RemoveBuildingNumber(address)
             : parts.WithoutHouseNumber;
         var standardized = StandardizeAddress(withoutBuildingNumber);
-        var streetOnly = RemovePremiseAfterStreetName(standardized);
+        // RemovePremiseAfterStreetName yalnızca sokak adının bulunduğu virgülle
+        // ayrılmış parçadaki fazlalığı (ör. "Kat:3") atmak için var; adres hiç
+        // virgülsüzse (Türkçe yazımda çok yaygın) tüm metin tek bir parça sayılır
+        // ve bu, sokaktan sonraki ilçe/il bilgisini de silip adresi başka
+        // şehirdeki aynı isimli bir sokakla yanlış eşleştirebilir.
+        var streetOnly = standardized.Contains(',')
+            ? RemovePremiseAfterStreetName(standardized)
+            : standardized;
         var streetFirst = PutStreetFirst(streetOnly);
 
         return new[] { parts.FreeText, withoutBuildingNumber, standardized, streetOnly, streetFirst }

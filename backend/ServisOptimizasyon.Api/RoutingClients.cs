@@ -17,6 +17,21 @@ public sealed class OptimizationOptions
     /// 1.25, rotaları dengelerken kapasite ve zaman kısıtları için pay bırakır.
     /// </summary>
     public double MaxRouteStopFactor { get; set; } = 1.25;
+
+    /// <summary>
+    /// Tek bir aracın rotasının sürebileceği azami süre (saniye). Varış saati
+    /// çok geniş bir pencere bıraktığı için (ör. 08:30'a kadar) VROOM tek
+    /// başına rotayı kısaltmaya çalışmaz; bu sınır aşılırsa VROOM durağı
+    /// başka bir araca kaydırmak zorunda kalır. Varsayılan 60 dakika.
+    /// </summary>
+    public int MaxRouteDurationSeconds { get; set; } = 2700;
+
+    /// <summary>
+    /// Tek bir aracın rotası için önerilen azami mesafe (metre). VROOM'da
+    /// yerli bir mesafe kısıtı olmadığından bu doğrudan uygulanmaz; aşıldığında
+    /// yalnızca uyarı üretilir (bkz. ScenarioOrchestrator.RouteAsync).
+    /// </summary>
+    public int MaxRouteDistanceMeters { get; set; } = 25_000;
 }
 
 public sealed class OptimizationClient(HttpClient client)
@@ -117,6 +132,7 @@ public sealed class ScenarioOrchestrator(
     OptimizationClient optimizationClient,
     VroomClient vroomClient,
     RestrictedAreaChecker restrictedAreas,
+    IGeocodingService geocodingService,
     IOptions<OptimizationOptions> options,
     ILogger<ScenarioOrchestrator> logger)
 {
@@ -215,6 +231,11 @@ public sealed class ScenarioOrchestrator(
                 stops.Count,
                 Math.Max(1, (int)Math.Ceiling(averageStopsPerActiveVehicle * _options.MaxRouteStopFactor)));
 
+        // Azami rota süresi filo sabit olsa da uygulanır: asıl dengeleyici bu
+        // sınırdır (sık bölgede araç daha çok kişi toplar, seyrek bölgede daha
+        // az) — kaldırılırsa kapasite geniş olduğu için VROOM yine en ucuz
+        // çözüme (birkaç araca yığma) döner.
+        var routeWindowEnd = Math.Min(deadlineSeconds, _options.MaxRouteDurationSeconds);
         var request = new VroomRequest(
             Jobs: stops.Select((stop, index) => new VroomJob(
                 index + 1,
@@ -229,7 +250,7 @@ public sealed class ScenarioOrchestrator(
                 null,
                 input.Workplace,
                 [vehicle.EffectiveCapacity],
-                [0, deadlineSeconds],
+                [0, routeWindowEnd],
                 maxTasksPerVehicle)).ToList(),
             Options: new VroomOptions(true));
 
@@ -304,18 +325,104 @@ public sealed class ScenarioOrchestrator(
                 $"{route.VehicleId} güzergâhı halka kapalı alandan geçiyor: "
                 + $"{string.Join(", ", route.RestrictedAreasCrossed)}.");
 
+        foreach (var route in routes.Where(route => route.DistanceMeters > _options.MaxRouteDistanceMeters))
+            warnings.Add(
+                $"{route.VehicleId} rotası {route.DistanceMeters / 1000.0:0.0} km ile önerilen azami mesafeyi "
+                + $"({_options.MaxRouteDistanceMeters / 1000.0:0} km) aşıyor; bu rotayı ek bir araçla bölmeyi düşünün.");
+
         logger.LogInformation(
             "Rotalama tamamlandı: {RouteCount} rota, {UnassignedCount} atanamayan personel.",
             routes.Count,
             unassignedPersons.Count);
 
+        // VROOM'un rotalayamadığı (unassigned) kişiler duraktan da düşürülmeli;
+        // aksi halde durak "yolcusu var ama hiçbir rotada değil" durumunda kalır
+        // ve ManualPlanValidator (bkz. manuel taşıma sonrası kayıt) reddeder.
+        var unassignedPersonIdSet = unassignedPersons
+            .Select(person => person.Id)
+            .ToHashSet(StringComparer.Ordinal);
+        var reconciledStops = stops
+            .Select(stop =>
+            {
+                if (!stop.AssignedPersonIds.Any(unassignedPersonIdSet.Contains))
+                    return stop;
+
+                var remainingPersonIds = stop.AssignedPersonIds
+                    .Where(personId => !unassignedPersonIdSet.Contains(personId))
+                    .ToList();
+                return stop with
+                {
+                    AssignedPersonIds = remainingPersonIds,
+                    WalkingDistancesMeters = stop.WalkingDistancesMeters
+                        .Where(entry => !unassignedPersonIdSet.Contains(entry.Key))
+                        .ToDictionary(entry => entry.Key, entry => entry.Value),
+                    WalkingDurationsSeconds = stop.WalkingDurationsSeconds
+                        .Where(entry => !unassignedPersonIdSet.Contains(entry.Key))
+                        .ToDictionary(entry => entry.Key, entry => entry.Value),
+                    Demand = remainingPersonIds.Count,
+                };
+            })
+            .Where(stop => stop.AssignedPersonIds.Count > 0)
+            .ToList();
+
+        var suggestedVehicleLabels = await BuildSuggestedVehicleLabelsAsync(
+            input.Vehicles, routes, stops, cancellationToken);
+
         return new ScenarioComputation(
-            stops,
+            reconciledStops,
             routes,
             unassignedPersons,
             deadlineMet,
             warnings,
-            stopGenerationSummary);
+            stopGenerationSummary)
+        {
+            SuggestedVehicleLabels = suggestedVehicleLabels,
+        };
+    }
+
+    /// <summary>
+    /// Kullanıcı henüz elle isim vermemiş, rotası olan her araç için son durağın
+    /// (işyerine en yakın, dolayısıyla o rotayı temsil eden) ilçesinden bir isim
+    /// önerisi üretir. Reverse geocoding başarısız olan araçlar önerisiz kalır;
+    /// bu bir hata değildir, isimlendirme optimizasyonun kritik yolunda değildir.
+    /// </summary>
+    private async Task<Dictionary<string, string>> BuildSuggestedVehicleLabelsAsync(
+        List<VehicleInput> vehicles,
+        List<RouteResult> routes,
+        List<StopResult> stops,
+        CancellationToken cancellationToken)
+    {
+        var stopLocations = stops.ToDictionary(stop => stop.Id, stop => stop.Location);
+        var labeledVehicleIds = vehicles
+            .Where(vehicle => !string.IsNullOrWhiteSpace(vehicle.Label))
+            .Select(vehicle => vehicle.Id)
+            .ToHashSet(StringComparer.Ordinal);
+
+        var candidates = routes
+            .Where(route => route.StopIds.Count > 0 && !labeledVehicleIds.Contains(route.VehicleId))
+            .Select(route => (route.VehicleId, Location: stopLocations.GetValueOrDefault(route.StopIds[^1])))
+            .Where(item => item.Location is { Length: 2 })
+            .ToList();
+
+        var results = new Dictionary<string, string>(StringComparer.Ordinal);
+        using var gate = new SemaphoreSlim(3);
+        var tasks = candidates.Select(async candidate =>
+        {
+            await gate.WaitAsync(cancellationToken);
+            try
+            {
+                var district = await geocodingService.ReverseGeocodeDistrictAsync(
+                    candidate.Location!, cancellationToken);
+                if (!string.IsNullOrWhiteSpace(district))
+                    lock (results) results[candidate.VehicleId] = district;
+            }
+            finally
+            {
+                gate.Release();
+            }
+        });
+        await Task.WhenAll(tasks);
+        return results;
     }
 
     private int ServiceSecondsFor(int demand) =>

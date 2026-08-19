@@ -12,6 +12,21 @@ class OsrmError(RuntimeError):
     """OSRM isteği tamamlanamadığında oluşan uygulama hatası."""
 
 
+# Türkçe adreslendirmede yol hiyerarşisi neredeyse her zaman isimden anlaşılır:
+# Bulvar/Cadde ana/toplayıcı yol, Sokak ise dar mahalle içi yoldur. Servis
+# aracının mahalleye girmemesi için durağı mümkünse bir Bulvar/Cadde üzerinde,
+# yolcuyu da oraya yürütecek şekilde seçeriz.
+_MAIN_ROAD_MARKERS = ("bulvar", "cadde", "caddesi", "cad.", "cad ")
+
+
+def _pick_main_road_waypoint(waypoints: list[dict[str, Any]]) -> dict[str, Any] | None:
+    for waypoint in waypoints:
+        name = str(waypoint.get("name") or "").lower()
+        if any(marker in name for marker in _MAIN_ROAD_MARKERS):
+            return waypoint
+    return waypoints[0] if waypoints else None
+
+
 @dataclass(frozen=True)
 class WalkingMatrix:
     distances: list[list[float | None]]
@@ -45,12 +60,15 @@ class OsrmFootClient:
             async with semaphore:
                 payload = await self._get_json(
                     f"{self.base_url}/nearest/v1/foot/{longitude},{latitude}",
-                    {"number": "1"},
+                    {"number": "10"},
                 )
             waypoints = payload.get("waypoints")
             if payload.get("code") != "Ok" or not isinstance(waypoints, list) or not waypoints:
                 return None
-            snapped = waypoints[0].get("location")
+            best = _pick_main_road_waypoint(waypoints)
+            if best is None:
+                return None
+            snapped = best.get("location")
             if not isinstance(snapped, list) or len(snapped) != 2:
                 return None
             return float(snapped[0]), float(snapped[1])

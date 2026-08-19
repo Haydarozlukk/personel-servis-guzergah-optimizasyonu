@@ -137,6 +137,9 @@ public sealed class PostgresScenarioStore(NpgsqlDataSource dataSource) : IScenar
         ALTER TABLE scenario_vehicles ADD COLUMN IF NOT EXISTS reserved_seats integer NOT NULL DEFAULT 0;
         ALTER TABLE scenario_routes
           ADD COLUMN IF NOT EXISTS restricted_areas_crossed text[] NOT NULL DEFAULT '{}';
+        ALTER TABLE scenarios
+          ADD COLUMN IF NOT EXISTS fleet_size_is_fixed boolean NOT NULL DEFAULT false;
+        ALTER TABLE scenario_vehicles ADD COLUMN IF NOT EXISTS label text;
         """;
 
     public async Task EnsureSchemaAsync(CancellationToken cancellationToken)
@@ -160,9 +163,9 @@ public sealed class PostgresScenarioStore(NpgsqlDataSource dataSource) : IScenar
 
         await using (var command = new NpgsqlCommand(
             """
-            INSERT INTO scenarios (id, name, direction, status, workplace, arrival_deadline_seconds, warnings)
+            INSERT INTO scenarios (id, name, direction, status, workplace, arrival_deadline_seconds, warnings, fleet_size_is_fixed)
             VALUES (@id, @name, @direction, @status,
-                    ST_SetSRID(ST_MakePoint(@lon, @lat), 4326)::geography, @deadline, @warnings)
+                    ST_SetSRID(ST_MakePoint(@lon, @lat), 4326)::geography, @deadline, @warnings, @fleetSizeIsFixed)
             """,
             connection,
             transaction))
@@ -175,6 +178,7 @@ public sealed class PostgresScenarioStore(NpgsqlDataSource dataSource) : IScenar
             command.Parameters.AddWithValue("lat", input.Workplace[1]);
             command.Parameters.AddWithValue("deadline", input.DeadlineSeconds);
             command.Parameters.AddWithValue("warnings", input.ImportWarnings.ToArray());
+            command.Parameters.AddWithValue("fleetSizeIsFixed", input.FleetSizeIsFixed);
             await command.ExecuteNonQueryAsync(cancellationToken);
         }
 
@@ -193,12 +197,13 @@ public sealed class PostgresScenarioStore(NpgsqlDataSource dataSource) : IScenar
         double[] workplace;
         int deadlineSeconds;
         List<string> importWarnings;
+        bool fleetSizeIsFixed;
 
         await using (var command = new NpgsqlCommand(
             """
             SELECT name, direction,
                    ST_X(workplace::geometry), ST_Y(workplace::geometry),
-                   arrival_deadline_seconds, warnings
+                   arrival_deadline_seconds, warnings, fleet_size_is_fixed
             FROM scenarios WHERE id = @id
             """,
             connection))
@@ -214,6 +219,7 @@ public sealed class PostgresScenarioStore(NpgsqlDataSource dataSource) : IScenar
             workplace = [reader.GetDouble(2), reader.GetDouble(3)];
             deadlineSeconds = reader.GetInt32(4);
             importWarnings = [.. reader.GetFieldValue<string[]>(5)];
+            fleetSizeIsFixed = reader.GetBoolean(6);
         }
 
         var persons = new List<PersonInput>();
@@ -237,7 +243,7 @@ public sealed class PostgresScenarioStore(NpgsqlDataSource dataSource) : IScenar
         await using (var command = new NpgsqlCommand(
             """
             SELECT vehicle_id, capacity,
-                   ST_X(start_location::geometry), ST_Y(start_location::geometry), plate, reserved_seats
+                   ST_X(start_location::geometry), ST_Y(start_location::geometry), plate, reserved_seats, label
             FROM scenario_vehicles WHERE scenario_id = @id ORDER BY vehicle_id
             """,
             connection))
@@ -250,7 +256,8 @@ public sealed class PostgresScenarioStore(NpgsqlDataSource dataSource) : IScenar
                     reader.GetInt32(1),
                     reader.IsDBNull(2) ? null : [reader.GetDouble(2), reader.GetDouble(3)],
                     reader.IsDBNull(4) ? null : reader.GetString(4),
-                    reader.GetInt32(5)));
+                    reader.GetInt32(5),
+                    reader.IsDBNull(6) ? null : reader.GetString(6)));
         }
 
         return new ScenarioInput
@@ -262,6 +269,7 @@ public sealed class PostgresScenarioStore(NpgsqlDataSource dataSource) : IScenar
             Persons = persons,
             Vehicles = vehicles,
             ImportWarnings = importWarnings,
+            FleetSizeIsFixed = fleetSizeIsFixed,
         };
     }
 
@@ -535,6 +543,23 @@ public sealed class PostgresScenarioStore(NpgsqlDataSource dataSource) : IScenar
             await command.ExecuteNonQueryAsync(cancellationToken);
         }
 
+        // Semte göre isim önerisi yalnızca kullanıcı henüz elle bir isim
+        // vermemişse (label IS NULL) uygulanır; manuel düzenlenen isimler korunur.
+        foreach (var (vehicleId, label) in computation.SuggestedVehicleLabels)
+        {
+            await using var command = new NpgsqlCommand(
+                """
+                UPDATE scenario_vehicles SET label = @label
+                WHERE scenario_id = @id AND vehicle_id = @vehicle AND label IS NULL
+                """,
+                connection,
+                transaction);
+            command.Parameters.AddWithValue("id", scenarioId);
+            command.Parameters.AddWithValue("vehicle", vehicleId);
+            command.Parameters.AddWithValue("label", label);
+            await command.ExecuteNonQueryAsync(cancellationToken);
+        }
+
         // Özet yalnızca durak üretimi çalıştığında gelir; yeniden rotalamada
         // null geçilir ve kayıtlı değer korunur.
         if (computation.StopGenerationSummary is { } summary)
@@ -636,7 +661,7 @@ public sealed class PostgresScenarioStore(NpgsqlDataSource dataSource) : IScenar
         await using var command = new NpgsqlCommand(
             """
             SELECT vehicle_id, capacity,
-                   ST_X(start_location::geometry), ST_Y(start_location::geometry), plate, reserved_seats
+                   ST_X(start_location::geometry), ST_Y(start_location::geometry), plate, reserved_seats, label
             FROM scenario_vehicles WHERE scenario_id = @id ORDER BY vehicle_id
             """,
             connection);
@@ -649,7 +674,8 @@ public sealed class PostgresScenarioStore(NpgsqlDataSource dataSource) : IScenar
                 reader.GetInt32(1),
                 reader.IsDBNull(2) ? null : [reader.GetDouble(2), reader.GetDouble(3)],
                 reader.IsDBNull(4) ? null : reader.GetString(4),
-                reader.GetInt32(5)));
+                reader.GetInt32(5),
+                reader.IsDBNull(6) ? null : reader.GetString(6)));
         }
 
         return vehicles;
@@ -859,8 +885,8 @@ public sealed class PostgresScenarioStore(NpgsqlDataSource dataSource) : IScenar
         {
             await using var command = new NpgsqlCommand(
                 """
-                INSERT INTO scenario_vehicles (scenario_id, vehicle_id, capacity, plate, reserved_seats, start_location)
-                VALUES (@id, @vehicle, @capacity, @plate, @reserved,
+                INSERT INTO scenario_vehicles (scenario_id, vehicle_id, capacity, plate, reserved_seats, label, start_location)
+                VALUES (@id, @vehicle, @capacity, @plate, @reserved, @label,
                     CASE WHEN @lon IS NULL THEN NULL
                          ELSE ST_SetSRID(ST_MakePoint(@lon, @lat), 4326)::geography END)
                 """,
@@ -871,6 +897,7 @@ public sealed class PostgresScenarioStore(NpgsqlDataSource dataSource) : IScenar
             command.Parameters.AddWithValue("capacity", vehicle.Capacity);
             command.Parameters.Add("plate", NpgsqlDbType.Text).Value = (object?)vehicle.Plate ?? DBNull.Value;
             command.Parameters.AddWithValue("reserved", vehicle.ReservedSeats);
+            command.Parameters.Add("label", NpgsqlDbType.Text).Value = (object?)vehicle.Label ?? DBNull.Value;
             command.Parameters.Add("lon", NpgsqlDbType.Double).Value = (object?)vehicle.Start?.ElementAtOrDefault(0) ?? DBNull.Value;
             command.Parameters.Add("lat", NpgsqlDbType.Double).Value = (object?)vehicle.Start?.ElementAtOrDefault(1) ?? DBNull.Value;
             await command.ExecuteNonQueryAsync(cancellationToken);
@@ -978,15 +1005,29 @@ public sealed class InMemoryScenarioStore : IScenarioStore
         _entries.AddOrUpdate(
             scenarioId,
             _ => throw new InvalidOperationException($"Senaryo bulunamadı: {scenarioId}."),
-            (_, entry) => entry with
+            (_, entry) =>
             {
-                Status = ScenarioStatus.Completed,
-                Computation = computation,
-                // Özet yalnızca durak üretimi çalıştığında gelir; yeniden
-                // rotalamada kayıtlı değer korunur.
-                Summary = computation.StopGenerationSummary ?? entry.Summary,
-                Error = null,
-                UpdatedAt = DateTimeOffset.UtcNow,
+                // Semte göre isim önerisi yalnızca kullanıcı henüz elle bir isim
+                // vermemişse uygulanır; manuel düzenlenen isimler korunur.
+                var vehicles = computation.SuggestedVehicleLabels.Count == 0
+                    ? entry.Input.Vehicles
+                    : entry.Input.Vehicles
+                        .Select(vehicle => string.IsNullOrWhiteSpace(vehicle.Label)
+                            && computation.SuggestedVehicleLabels.TryGetValue(vehicle.Id, out var label)
+                            ? vehicle with { Label = label }
+                            : vehicle)
+                        .ToList();
+                return entry with
+                {
+                    Input = entry.Input with { Vehicles = vehicles },
+                    Status = ScenarioStatus.Completed,
+                    Computation = computation,
+                    // Özet yalnızca durak üretimi çalıştığında gelir; yeniden
+                    // rotalamada kayıtlı değer korunur.
+                    Summary = computation.StopGenerationSummary ?? entry.Summary,
+                    Error = null,
+                    UpdatedAt = DateTimeOffset.UtcNow,
+                };
             });
         return Task.CompletedTask;
     }

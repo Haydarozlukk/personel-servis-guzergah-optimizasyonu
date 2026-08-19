@@ -395,6 +395,9 @@ public class GeocodingTests
             int limit,
             CancellationToken cancellationToken) =>
             Task.FromResult<IReadOnlyList<GeocodingSuggestion>>([]);
+
+        public Task<string?> ReverseGeocodeDistrictAsync(double[] location, CancellationToken cancellationToken) =>
+            Task.FromResult<string?>(null);
     }
 
     /// <summary>

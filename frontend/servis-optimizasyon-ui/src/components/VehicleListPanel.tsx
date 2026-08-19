@@ -1,6 +1,8 @@
 export type VehicleRow = {
   id: string
+  label?: string | null
   capacity: number
+  load: number
   summary: string
   routed: boolean
   color: string
@@ -43,7 +45,7 @@ export function VehicleListPanel({ vehicles, selectedVehicleId, onSelect, unassi
                 <div className="op-vehicle-row-top">
                   <span className="op-vehicle-row-name">
                     <i style={{ background: vehicle.routed ? vehicle.color : 'var(--border-strong)' }} />
-                    {vehicle.id}
+                    {vehicle.label || vehicle.id}
                   </span>
                   {vehicle.nearbyDistanceMeters !== undefined ? (
                     <span className="op-vehicle-row-distance">
@@ -51,7 +53,7 @@ export function VehicleListPanel({ vehicles, selectedVehicleId, onSelect, unassi
                       {vehicle.isNearest && <span className="op-vehicle-near-chip">Yakın</span>}
                     </span>
                   ) : (
-                    <span className="op-vehicle-row-capacity">{vehicle.capacity} kişi</span>
+                    <span className="op-vehicle-row-capacity">{vehicle.load}/{vehicle.capacity} kişi</span>
                   )}
                 </div>
                 <span className={`op-vehicle-row-summary${vehicle.routed ? '' : ' unrouted'}`}>{vehicle.summary}</span>

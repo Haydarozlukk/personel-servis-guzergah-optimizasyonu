@@ -72,6 +72,7 @@ public class ScenarioOrchestratorTests
             optimizationClient,
             vroomClient,
             RestrictedAreaChecker.Empty,
+            new NoopGeocodingService(),
             Options.Create(new OptimizationOptions()),
             NullLogger<ScenarioOrchestrator>.Instance);
 
@@ -343,6 +344,7 @@ public class ScenarioOrchestratorTests
             }),
             new VroomClient(new HttpClient(vroomHandler) { BaseAddress = new Uri("http://vroom:3000") }),
             RestrictedAreaChecker.Empty,
+            new NoopGeocodingService(),
             Options.Create(new OptimizationOptions()),
             NullLogger<ScenarioOrchestrator>.Instance);
 
@@ -373,5 +375,20 @@ public class ScenarioOrchestratorTests
                 Content = new StringContent(responseJson, Encoding.UTF8, "application/json"),
             };
         }
+    }
+
+    private sealed class NoopGeocodingService : IGeocodingService
+    {
+        public Task<GeocodingResult?> GeocodeAsync(string address, CancellationToken cancellationToken) =>
+            Task.FromResult<GeocodingResult?>(null);
+
+        public Task<IReadOnlyList<GeocodingSuggestion>> SuggestAsync(
+            string query,
+            int limit,
+            CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyList<GeocodingSuggestion>>([]);
+
+        public Task<string?> ReverseGeocodeDistrictAsync(double[] location, CancellationToken cancellationToken) =>
+            Task.FromResult<string?>(null);
     }
 }

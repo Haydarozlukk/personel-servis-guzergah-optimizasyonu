@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import type { StopGenerationSummary } from '../lib/api'
 
 export type StatusTone = 'neutral' | 'progress' | 'success' | 'error'
@@ -11,15 +12,35 @@ type StatusStripProps = {
 }
 
 export function StatusStrip({ tone, message, warnings, unassignedPersonCount, stopSummary }: StatusStripProps) {
+  const [expanded, setExpanded] = useState(false)
+
   return (
-    <div className={`op-status-strip op-scroll op-status-${tone}`} aria-live="polite">
+    <div className={`op-status-strip op-status-${tone}`} aria-live="polite">
       <div className="op-status-row">
         <span className="op-status-icon" aria-hidden="true" />
         <span>{message}</span>
       </div>
-      {warnings.length > 0 && <p className="op-status-warning">{warnings.join(' ')}</p>}
       {unassignedPersonCount > 0 && (
         <p className="op-status-warning">{unassignedPersonCount} personel atanamadı.</p>
+      )}
+      {warnings.length > 0 && (
+        <div className="op-status-warnings">
+          <button
+            type="button"
+            className="op-status-warnings-toggle"
+            onClick={() => setExpanded((prev) => !prev)}
+            aria-expanded={expanded}
+          >
+            ⚠ {warnings.length} uyarı {expanded ? '· gizle ▲' : '· detaylar ▼'}
+          </button>
+          {expanded && (
+            <ul className="op-status-warnings-list op-scroll">
+              {warnings.map((warning, index) => (
+                <li key={index}>{warning}</li>
+              ))}
+            </ul>
+          )}
+        </div>
       )}
       {stopSummary && (
         <div className="op-status-walking">

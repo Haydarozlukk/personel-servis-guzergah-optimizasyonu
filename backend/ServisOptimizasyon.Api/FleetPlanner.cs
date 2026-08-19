@@ -1,44 +1,32 @@
 public static class FleetPlanner
 {
-    public static readonly int[] SupportedCapacities = [18, 30, 46];
+    // Gercek filo bu dort kapasiteden olusuyor (40/28/18/16 kisilik araclar);
+    // esit boyutta degil, coklu araclar sirayla dagitilir ki VROOM koltuk
+    // sinirindan once cogunlukla rota suresi/mesafesiyle sinirlansin.
+    public static readonly int[] SupportedCapacities = [40, 28, 18, 16];
+
+    // Gercek filoda en fazla 45 arac var; bundan fazlasi dispatch edilemez.
+    public const int MaxVehicleCount = 45;
 
     /// <summary>
-    /// Önce araç sayısını, eşit araç sayısında boş koltuk miktarını azaltan
-    /// deterministik başlangıç filosu üretir. Araçlar ilk optimizasyonda açık
-    /// rota olarak çözüleceği için başlangıç koordinatı yalnızca eski sözleşmeyle
-    /// uyumluluk amacıyla varış noktası olarak tutulur.
+    /// Kapasiteleri <see cref="SupportedCapacities"/> arasinda donen, en fazla
+    /// <see cref="MaxVehicleCount"/> araclik bir baslangic filosu uretir. Araclar
+    /// ilk optimizasyonda acik rota olarak cozulecegi icin baslangic koordinati
+    /// yalnizca eski sozlesmeyle uyumluluk amaciyla varis noktasi olarak tutulur.
     /// </summary>
-    public static List<VehicleInput> Create(int personCount, double[] destination)
+    public static List<VehicleInput> Create(int personCount, double[] destination, int? fixedVehicleCount = null)
     {
         if (personCount < 1) throw new ArgumentOutOfRangeException(nameof(personCount));
 
-        var maxVehicles = (int)Math.Ceiling(personCount / (double)SupportedCapacities.Min());
-        (int VehicleCount, int TotalCapacity, int[] Capacities)? best = null;
+        var vehicleCount = fixedVehicleCount is > 0
+            ? Math.Min(fixedVehicleCount.Value, MaxVehicleCount)
+            : MaxVehicleCount;
 
-        for (var count18 = 0; count18 <= maxVehicles; count18++)
-        for (var count30 = 0; count30 <= maxVehicles - count18; count30++)
-        for (var count46 = 0; count46 <= maxVehicles - count18 - count30; count46++)
-        {
-            var vehicleCount = count18 + count30 + count46;
-            if (vehicleCount == 0) continue;
-            var totalCapacity = (count18 * 18) + (count30 * 30) + (count46 * 46);
-            if (totalCapacity < personCount) continue;
-
-            var capacities = Enumerable.Repeat(46, count46)
-                .Concat(Enumerable.Repeat(30, count30))
-                .Concat(Enumerable.Repeat(18, count18))
-                .ToArray();
-            if (best is null
-                || vehicleCount < best.Value.VehicleCount
-                || (vehicleCount == best.Value.VehicleCount && totalCapacity < best.Value.TotalCapacity))
-            {
-                best = (vehicleCount, totalCapacity, capacities);
-            }
-        }
-
-        var selected = best?.Capacities
-            ?? throw new InvalidOperationException("Başlangıç filosu oluşturulamadı.");
-        return selected.Select((capacity, index) =>
-            new VehicleInput($"Servis-{index + 1:D3}", capacity, destination)).ToList();
+        return Enumerable.Range(1, vehicleCount)
+            .Select(index => new VehicleInput(
+                $"Servis-{index:D3}",
+                SupportedCapacities[(index - 1) % SupportedCapacities.Length],
+                destination))
+            .ToList();
     }
 }

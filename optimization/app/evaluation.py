@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from app.candidates import generate_stop_candidates
 from app.models import CandidateEvaluation, Person, StopCandidate, UnassignedReason
 from app.osrm import OsrmError, OsrmFootClient
+from app.overpass import OverpassClient
 
 
 @dataclass(frozen=True)
@@ -54,8 +55,11 @@ async def analyze_stop_candidates(
     persons: list[Person],
     max_walking_distance_meters: int,
     osrm: OsrmFootClient,
+    overpass: OverpassClient | None = None,
 ) -> CandidateAnalysis:
-    candidates = await generate_stop_candidates(persons, osrm)
+    candidates = await generate_stop_candidates(
+        persons, osrm, overpass=overpass, max_walking_distance_meters=max_walking_distance_meters
+    )
     matrix = await osrm.get_walking_matrix(
         sources=[person.location for person in persons],
         destinations=[candidate.location for candidate in candidates],

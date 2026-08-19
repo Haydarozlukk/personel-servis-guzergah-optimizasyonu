@@ -65,6 +65,7 @@ export type ExcelImportForm = {
   name: string
   arrivalDeadline: string
   destinationAddress?: string
+  vehicleCount?: number
 }
 
 export async function importScenarioFromExcel(form: ExcelImportForm): Promise<ScenarioAccepted> {
@@ -73,6 +74,7 @@ export async function importScenarioFromExcel(form: ExcelImportForm): Promise<Sc
   body.set('name', form.name)
   body.set('arrivalDeadline', form.arrivalDeadline)
   if (form.destinationAddress) body.set('destinationAddress', form.destinationAddress)
+  if (form.vehicleCount) body.set('vehicleCount', String(form.vehicleCount))
 
   const response = await fetch(`${apiBaseUrl}/api/v1/scenarios/import`, { method: 'POST', body, credentials: 'include' })
   if (response.status === 413) throw new Error('Dosya boyutu sınırını aşıyor.')
