@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import type { ScenarioResult, ScenarioRoute, ScenarioStop, ScenarioVehicle } from '../lib/api'
 
 import { getStopDisplayName } from '../lib/stopName'
+import { geocodeAddress } from '../lib/geocode'
 
 type VehicleDrawerProps = {
   vehicleId: string
@@ -22,6 +23,8 @@ type VehicleDrawerProps = {
   onMoveStop: (stopId: string, direction: -1 | 1) => void
   onAssignToStop: (personId: string, stopId: string) => void
   onDeleteVehicle: () => void
+  onDeleteStop: (stopId: string) => void
+  onAddStopByAddress: (location: [number, number]) => void
   onSelectStop?: (location: number[]) => void
 }
 
@@ -35,6 +38,25 @@ export function VehicleDrawer(props: VehicleDrawerProps) {
   const [label, setLabel] = useState(vehicle?.label ?? '')
   const [capacity, setCapacity] = useState<number>(vehicle?.capacity ?? 18)
   const [reservedSeats, setReservedSeats] = useState(vehicle?.reservedSeats ?? 0)
+  const [stopAddressQuery, setStopAddressQuery] = useState('')
+  const [stopGeocoding, setStopGeocoding] = useState(false)
+  const [stopGeocodeError, setStopGeocodeError] = useState('')
+
+  async function handleAddStopByAddress() {
+    const query = stopAddressQuery.trim()
+    if (!query || stopGeocoding) return
+    setStopGeocoding(true)
+    setStopGeocodeError('')
+    try {
+      const { lat, lon } = await geocodeAddress(query)
+      props.onAddStopByAddress([lat, lon])
+      setStopAddressQuery('')
+    } catch (error) {
+      setStopGeocodeError(error instanceof Error ? error.message : 'Adres aranırken hata oluştu.')
+    } finally {
+      setStopGeocoding(false)
+    }
+  }
 
   useEffect(() => {
     setPlate(vehicle?.plate ?? '')
@@ -119,6 +141,25 @@ export function VehicleDrawer(props: VehicleDrawerProps) {
           <div><p className="op-kicker">Güzergâh</p><h3>Kullanıcı sıralaması</h3></div>
           <button className="op-btn op-btn-secondary op-btn-small" onClick={props.onPickStop}>+ Haritadan durak</button>
         </div>
+        <div className="op-drawer-card-body">
+          <div className="op-person-search">
+            <label className="op-field-wide">
+              <span>Adres ile durak ekle</span>
+              <input
+                type="text"
+                placeholder="Örn. Kızılırmak Mah., Çankaya/Ankara"
+                value={stopAddressQuery}
+                disabled={stopGeocoding}
+                onChange={(event) => setStopAddressQuery(event.target.value)}
+                onKeyDown={(event) => event.key === 'Enter' && void handleAddStopByAddress()}
+              />
+            </label>
+            <button type="button" className="op-btn op-btn-primary" disabled={stopGeocoding} onClick={() => void handleAddStopByAddress()}>
+              {stopGeocoding ? 'Aranıyor…' : 'Bul'}
+            </button>
+          </div>
+          {stopGeocodeError && <p className="op-error-text">{stopGeocodeError}</p>}
+        </div>
         <div className="op-drawer-card-body op-scroll">
           <ul className="op-drawer-stop-list">
             <li
@@ -182,6 +223,18 @@ export function VehicleDrawer(props: VehicleDrawerProps) {
                       }}
                     >
                       ↓
+                    </button>
+                    <button
+                      className="op-icon-danger"
+                      title="Durağı kaldır"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        if (confirm(`${displayName} kaldırılsın mı? Bu durağa atanmış yolcular servis atanmamış listesine taşınacak.`)) {
+                          props.onDeleteStop(stop.id)
+                        }
+                      }}
+                    >
+                      ×
                     </button>
                   </span>
                 </li>

@@ -273,10 +273,23 @@ export function ScenarioMap({
     () => new Map(vehicles.map((vehicle) => [vehicle.id, vehicle.label || vehicle.id])),
     [vehicles],
   )
-  // Her rotanın ilk durağı: farklı renkle "kalkış noktası" olarak işaretlenir.
+  // Aracın tanımlı bir başlangıç noktası (vehicle.start) yoksa ilk durak o
+  // konumun yerine geçer ve "kalkış noktası" olarak işaretlenir. Başlangıç
+  // noktası tanımlıysa (ki zaten ayrı bir işaretçiyle gösteriliyor) ilk durak
+  // sıradan bir durak; onu da kalkış gibi boyamak yeni eklenen bir durağı,
+  // sırada başa denk geldiğinde, yanlışlıkla kalkış noktası gibi gösteriyordu.
+  const vehicleHasStart = useMemo(
+    () => new Map(vehicles.map((vehicle) => [vehicle.id, !!vehicle.start])),
+    [vehicles],
+  )
   const departureStopIds = useMemo(
-    () => new Set(routes.map((route) => route.stopIds?.[0]).filter((id): id is string => !!id)),
-    [routes],
+    () => new Set(
+      routes
+        .filter((route) => !vehicleHasStart.get(route.vehicleId))
+        .map((route) => route.stopIds?.[0])
+        .filter((id): id is string => !!id),
+    ),
+    [routes, vehicleHasStart],
   )
   // Bir durağa tıklandığında hangi aracın rotası seçilecek, bunun için.
   const vehicleIdByStopId = useMemo(() => {

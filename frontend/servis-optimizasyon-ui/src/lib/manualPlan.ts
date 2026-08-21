@@ -17,11 +17,29 @@ function normalizeLngLat(location: number[]): [number, number] {
 }
 
 function recalculate(plan: ScenarioResult): ScenarioResult {
-  const stops = plan.stops.map((stop) => ({
-    ...stop,
-    location: normalizeLngLat(stop.location),
-    demand: stop.assignedPersonIds.length,
-  }))
+  const personMap = new Map(plan.persons.map((person) => [person.id, person]))
+  const stops = plan.stops.map((stop) => {
+    const location = normalizeLngLat(stop.location)
+    const walkingDistancesMeters: Record<string, number> = {}
+    const walkingDurationsSeconds: Record<string, number> = {}
+    for (const personId of stop.assignedPersonIds) {
+      const person = personMap.get(personId)
+      const meters = person ? Math.round(haversineDistanceMeters(person.location, location)) : 0
+      walkingDistancesMeters[personId] = meters
+      walkingDurationsSeconds[personId] = Math.round(meters / 1.2)
+    }
+    const averageWalkingDistanceMeters = stop.assignedPersonIds.length > 0
+      ? Object.values(walkingDistancesMeters).reduce((sum, value) => sum + value, 0) / stop.assignedPersonIds.length
+      : 0
+    return {
+      ...stop,
+      location,
+      demand: stop.assignedPersonIds.length,
+      walkingDistancesMeters,
+      walkingDurationsSeconds,
+      averageWalkingDistanceMeters,
+    }
+  })
   const stopMap = new Map(stops.map((stop) => [stop.id, stop]))
   const routes = plan.routes.map((route) => {
     let load = 0

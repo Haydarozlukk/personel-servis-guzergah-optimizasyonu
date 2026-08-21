@@ -31,7 +31,7 @@ public sealed class OptimizationOptions
     /// yerli bir mesafe kısıtı olmadığından bu doğrudan uygulanmaz; aşıldığında
     /// yalnızca uyarı üretilir (bkz. ScenarioOrchestrator.RouteAsync).
     /// </summary>
-    public int MaxRouteDistanceMeters { get; set; } = 25_000;
+    public int MaxRouteDistanceMeters { get; set; } = 30_000;
 }
 
 public sealed class OptimizationClient(HttpClient client)

@@ -18,7 +18,7 @@ import { VersionPanel } from './components/VersionPanel'
 import { UnassignedPanel } from './components/UnassignedPanel'
 import {
   addManualStop, addVehicle, assignPerson, assignPersonToStop, deleteUnassignedPerson, distributePersonsToPlan,
-  moveStop, moveStopLocation, moveVehicleStartLocation, removeVehicle, unassignPerson, updateVehicle,
+  moveStop, moveStopLocation, moveVehicleStartLocation, removeStop, removeVehicle, unassignPerson, updateVehicle,
 } from './lib/manualPlan'
 
 type ActiveOverlay = 'none' | 'add'
@@ -355,6 +355,13 @@ export function App({ onLogout }: { onLogout: () => Promise<void> }) {
           onPickStop={() => { setStopPickVehicleId(selectedVehicleId) }}
           onMoveStop={(stopId, direction) => scenarioResult && persistManualPlan(moveStop(scenarioResult, selectedVehicleId, stopId, direction))}
           onAssignToStop={(personId, stopId) => scenarioResult && persistManualPlan(assignPersonToStop(scenarioResult, personId, stopId))}
+          onDeleteStop={(stopId) => scenarioResult && persistManualPlan(removeStop(scenarioResult, selectedVehicleId, stopId))}
+          onAddStopByAddress={(location) => {
+            if (!scenarioResult) return
+            const next = addManualStop(scenarioResult, selectedVehicleId, [location[1], location[0]])
+            persistManualPlan(next)
+            setFocusedLocation(next.stops[next.stops.length - 1]?.location ?? null)
+          }}
           onSelectStop={(location) => setFocusedLocation(location)}
           onDeleteVehicle={() => {
             if (!scenarioResult) return
