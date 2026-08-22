@@ -18,8 +18,8 @@ import { VersionPanel } from './components/VersionPanel'
 import { UnassignedPanel } from './components/UnassignedPanel'
 import {
   addManualStop, addVehicle, assignPerson, assignPersonToStop, deleteUnassignedPerson, distributePersonsToPlan,
-  moveStop, moveStopLocation, moveVehicleStartLocation, removeStop, removeVehicle, unassignAllPersons, unassignPerson,
-  updateVehicle,
+  addVehicles, moveStop, moveStopLocation, moveVehicleStartLocation, parseBulkVehicleRows, removeStop, removeVehicle,
+  unassignAllPersons, unassignPerson, updateVehicle,
 } from './lib/manualPlan'
 
 type ActiveOverlay = 'none' | 'add'
@@ -308,6 +308,12 @@ export function App({ onLogout }: { onLogout: () => Promise<void> }) {
             onOpenUnassigned={() => setShowUnassigned(true)}
             onAddVehicle={handleAddVehicle}
             onUnassignAll={() => scenarioResult && persistManualPlan(unassignAllPersons(scenarioResult))}
+            onBulkAddVehicles={(text) => {
+              if (!scenarioResult) return []
+              const { vehicles, errors } = parseBulkVehicleRows(text, scenarioResult.vehicles.map((vehicle) => vehicle.id))
+              if (vehicles.length > 0) persistManualPlan(addVehicles(scenarioResult, vehicles))
+              return errors
+            }}
           />
         </>
       )}

@@ -192,6 +192,57 @@ export function addVehicle(plan: ScenarioResult, vehicle: ScenarioVehicle): Scen
   return recalculate({ ...plan, vehicles: [...plan.vehicles, vehicle] })
 }
 
+export function addVehicles(plan: ScenarioResult, vehicles: ScenarioVehicle[]): ScenarioResult {
+  if (vehicles.length === 0) return plan
+  return recalculate({ ...plan, vehicles: [...plan.vehicles, ...vehicles] })
+}
+
+/// Excel'den kopyalanan "İsim<TAB>Kapasite" (virgül/noktalı virgülle de olur)
+/// satırlarını araç listesine dönüştürür. "18+1" gibi şoför koltuğu eklenmiş
+/// kapasiteleri ilk sayıya indirger (18); aynı isim birden fazla kez geçerse
+/// veya mevcut bir araç kimliğiyle çakışırsa sona "(2)", "(3)" ... eklenir.
+export function parseBulkVehicleRows(
+  text: string,
+  existingIds: string[],
+): { vehicles: ScenarioVehicle[]; errors: string[] } {
+  const usedIds = new Set(existingIds)
+  const vehicles: ScenarioVehicle[] = []
+  const errors: string[] = []
+  const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean)
+
+  lines.forEach((line, index) => {
+    const parts = line.split(/\t|,|;/).map((part) => part.trim()).filter(Boolean)
+    if (parts.length < 2) {
+      errors.push(`${index + 1}. satır: isim ve kapasite ayırt edilemedi ("${line}").`)
+      return
+    }
+    const name = parts[0]
+    const capacityMatch = parts[1].match(/\d+/)
+    if (!capacityMatch) {
+      errors.push(`${index + 1}. satır: kapasite okunamadı ("${line}").`)
+      return
+    }
+    const capacity = parseInt(capacityMatch[0], 10)
+
+    let id = name
+    let suffix = 2
+    while (usedIds.has(id)) id = `${name} (${suffix++})`
+    usedIds.add(id)
+
+    vehicles.push({
+      id,
+      label: name,
+      capacity,
+      reservedSeats: 0,
+      effectiveCapacity: capacity,
+      start: null,
+      plate: null,
+    })
+  })
+
+  return { vehicles, errors }
+}
+
 export function updateVehicle(plan: ScenarioResult, vehicleId: string, patch: Partial<ScenarioVehicle>): ScenarioResult {
   const vehicle = plan.vehicles.find((item) => item.id === vehicleId)
   if (!vehicle) return plan

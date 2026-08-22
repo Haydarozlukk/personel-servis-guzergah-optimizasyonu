@@ -1,3 +1,5 @@
+import { useState } from 'react'
+
 export type VehicleRow = {
   id: string
   label?: string | null
@@ -19,9 +21,23 @@ type VehicleListPanelProps = {
   onOpenUnassigned: () => void
   onAddVehicle: () => void
   onUnassignAll: () => void
+  onBulkAddVehicles: (text: string) => string[]
 }
 
-export function VehicleListPanel({ vehicles, selectedVehicleId, onSelect, unassignedPersonCount, assignedPersonCount, onOpenUnassigned, onAddVehicle, onUnassignAll }: VehicleListPanelProps) {
+export function VehicleListPanel({ vehicles, selectedVehicleId, onSelect, unassignedPersonCount, assignedPersonCount, onOpenUnassigned, onAddVehicle, onUnassignAll, onBulkAddVehicles }: VehicleListPanelProps) {
+  const [bulkOpen, setBulkOpen] = useState(false)
+  const [bulkText, setBulkText] = useState('')
+
+  function handleBulkSubmit() {
+    if (!bulkText.trim()) return
+    const errors = onBulkAddVehicles(bulkText)
+    if (errors.length > 0) {
+      alert(`Bazı satırlar eklenemedi:\n${errors.join('\n')}`)
+    }
+    setBulkText('')
+    setBulkOpen(false)
+  }
+
   return (
     <div className="op-vehicle-panel op-scroll" aria-label="Araç filosu">
       <div className="op-vehicle-panel-header">
@@ -31,6 +47,26 @@ export function VehicleListPanel({ vehicles, selectedVehicleId, onSelect, unassi
         </div>
         <button className="op-badge op-badge-button" onClick={onAddVehicle}>+ Araç</button>
       </div>
+      <button className="op-btn op-btn-secondary op-btn-small" onClick={() => setBulkOpen((prev) => !prev)}>
+        {bulkOpen ? 'Toplu ekleme kapat' : 'Toplu araç ekle (Excel\'den yapıştır)'}
+      </button>
+      {bulkOpen && (
+        <div className="op-bulk-vehicle-form">
+          <p className="op-advice-note">
+            ⓘ Excel'de "isim" ve "kapasite" sütunlarını seçip kopyalayın, aşağıya yapıştırın. Her satır bir araç
+            olur; "18+1" gibi değerlerden ilk sayı (18) kapasite olarak alınır.
+          </p>
+          <textarea
+            rows={6}
+            placeholder={'AYVALI-PAMUKLAR-ŞENTEPE\t18+1\nBAŞLICA\t27+1'}
+            value={bulkText}
+            onChange={(event) => setBulkText(event.target.value)}
+          />
+          <button className="op-btn op-btn-primary op-btn-small" disabled={!bulkText.trim()} onClick={handleBulkSubmit}>
+            Yapıştırılanları ekle
+          </button>
+        </div>
+      )}
       {unassignedPersonCount > 0 && (
         <button className="op-vehicle-panel-warning op-warning-button" onClick={onOpenUnassigned}>{unassignedPersonCount} yolcu servis atanmamış · aç</button>
       )}

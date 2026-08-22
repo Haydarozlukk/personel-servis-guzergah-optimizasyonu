@@ -778,6 +778,22 @@ input:focus-visible { outline: 3px solid rgba(37, 99, 235, .28); outline-offset:
   font-weight: 650;
 }
 
+.op-bulk-vehicle-form {
+  display: flex;
+  flex-direction: column;
+  gap: .5rem;
+  margin: .5rem 0 .75rem;
+}
+.op-bulk-vehicle-form textarea {
+  width: 100%;
+  font-family: inherit;
+  font-size: .75rem;
+  padding: .5rem;
+  border-radius: .5rem;
+  border: 1px solid var(--border-strong);
+  resize: vertical;
+}
+
 .op-vehicle-list { display: grid; gap: .3rem; margin: 0; padding: 0; list-style: none; }
 
 .op-vehicle-row {
