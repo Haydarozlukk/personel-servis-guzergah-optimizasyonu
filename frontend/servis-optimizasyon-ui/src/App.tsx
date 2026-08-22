@@ -18,7 +18,8 @@ import { VersionPanel } from './components/VersionPanel'
 import { UnassignedPanel } from './components/UnassignedPanel'
 import {
   addManualStop, addVehicle, assignPerson, assignPersonToStop, deleteUnassignedPerson, distributePersonsToPlan,
-  moveStop, moveStopLocation, moveVehicleStartLocation, removeStop, removeVehicle, unassignPerson, updateVehicle,
+  moveStop, moveStopLocation, moveVehicleStartLocation, removeStop, removeVehicle, unassignAllPersons, unassignPerson,
+  updateVehicle,
 } from './lib/manualPlan'
 
 type ActiveOverlay = 'none' | 'add'
@@ -151,6 +152,9 @@ export function App({ onLogout }: { onLogout: () => Promise<void> }) {
   const allVehicles = scenarioResult?.vehicles ?? []
   const realStops = scenarioResult?.stops ?? null
   const unassignedPersonIds = scenarioResult?.unassignedPersonIds ?? []
+  const assignedPersonCount = scenarioResult
+    ? scenarioResult.persons.length - unassignedPersonIds.length
+    : 0
   const stopSummary = scenarioResult?.stopGenerationSummary ?? null
   const warnings = scenarioResult?.warnings ?? []
 
@@ -300,8 +304,10 @@ export function App({ onLogout }: { onLogout: () => Promise<void> }) {
             selectedVehicleId={selectedVehicleId}
             onSelect={handleSelectVehicle}
             unassignedPersonCount={unassignedPersonIds.length}
+            assignedPersonCount={assignedPersonCount}
             onOpenUnassigned={() => setShowUnassigned(true)}
             onAddVehicle={handleAddVehicle}
+            onUnassignAll={() => scenarioResult && persistManualPlan(unassignAllPersons(scenarioResult))}
           />
         </>
       )}

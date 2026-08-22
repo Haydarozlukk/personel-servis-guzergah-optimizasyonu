@@ -15,11 +15,13 @@ type VehicleListPanelProps = {
   selectedVehicleId: string | null
   onSelect: (id: string) => void
   unassignedPersonCount: number
+  assignedPersonCount: number
   onOpenUnassigned: () => void
   onAddVehicle: () => void
+  onUnassignAll: () => void
 }
 
-export function VehicleListPanel({ vehicles, selectedVehicleId, onSelect, unassignedPersonCount, onOpenUnassigned, onAddVehicle }: VehicleListPanelProps) {
+export function VehicleListPanel({ vehicles, selectedVehicleId, onSelect, unassignedPersonCount, assignedPersonCount, onOpenUnassigned, onAddVehicle, onUnassignAll }: VehicleListPanelProps) {
   return (
     <div className="op-vehicle-panel op-scroll" aria-label="Araç filosu">
       <div className="op-vehicle-panel-header">
@@ -31,6 +33,19 @@ export function VehicleListPanel({ vehicles, selectedVehicleId, onSelect, unassi
       </div>
       {unassignedPersonCount > 0 && (
         <button className="op-vehicle-panel-warning op-warning-button" onClick={onOpenUnassigned}>{unassignedPersonCount} yolcu servis atanmamış · aç</button>
+      )}
+      {assignedPersonCount > 0 && (
+        <button
+          className="op-btn op-btn-secondary op-btn-small"
+          title="Tüm servislere atanmış yolcuları atanmamış listesine taşır"
+          onClick={() => {
+            if (confirm(`${assignedPersonCount} yolcu tüm servislerden çıkarılıp atanmamış listesine taşınsın mı? Bu işlem geri alınamaz.`)) {
+              onUnassignAll()
+            }
+          }}
+        >
+          Tümünü atanmamışa al ({assignedPersonCount})
+        </button>
       )}
       <ul className="op-vehicle-list">
         {vehicles.map((vehicle) => {

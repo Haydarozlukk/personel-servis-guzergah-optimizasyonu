@@ -81,6 +81,30 @@ export function unassignPerson(plan: ScenarioResult, personId: string): Scenario
   return recalculate({ ...next, unassignedPersonIds, unassignedPersons })
 }
 
+/// Rotalardaki tum yolcuları tek seferde atanmamış listesine taşır; her boşalan
+/// durak (ve rotası) silinir. `unassignPerson`'ı döngüde çağırmak her seferinde
+/// tüm planı yeniden hesaplattığı için büyük senaryolarda yavaş kalıyordu.
+export function unassignAllPersons(plan: ScenarioResult): ScenarioResult {
+  const assignedPersonIds = plan.stops.flatMap((stop) => stop.assignedPersonIds)
+  if (assignedPersonIds.length === 0) return plan
+
+  const assignedIdSet = new Set(assignedPersonIds)
+  const unassignedPersonIds = Array.from(new Set([...plan.unassignedPersonIds, ...assignedPersonIds]))
+  const unassignedPersons = [
+    ...(plan.unassignedPersons ?? []).filter((person) => !assignedIdSet.has(person.id)),
+    ...assignedPersonIds.map((id) => ({ id, reason: 'manual_unassigned' as const })),
+  ]
+  const routes = plan.routes.map((route) => ({
+    ...route,
+    geometry: '',
+    distanceMeters: 0,
+    durationSeconds: 0,
+    stopIds: [],
+  }))
+
+  return recalculate({ ...plan, stops: [], routes, unassignedPersonIds, unassignedPersons })
+}
+
 export function assignPerson(plan: ScenarioResult, personId: string, vehicleId: string): ScenarioResult {
   const person = plan.persons.find((item) => item.id === personId)
   if (!person || !vehicleHasAvailableSeat(plan, vehicleId, personId)) return plan
