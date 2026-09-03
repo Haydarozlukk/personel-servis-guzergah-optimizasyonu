@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { defaultFleetRows } from '../lib/defaultFleet'
 
 export type VehicleRow = {
   id: string
@@ -65,6 +66,9 @@ export function VehicleListPanel({ vehicles, selectedVehicleId, onSelect, unassi
           />
           <button className="op-btn op-btn-primary op-btn-small" disabled={!bulkText.trim()} onClick={handleBulkSubmit}>
             Yapıştırılanları ekle
+          </button>
+          <button type="button" className="op-btn op-btn-secondary op-btn-small" onClick={() => setBulkText(defaultFleetRows)}>
+            Varsayılan servis listesini getir
           </button>
         </div>
       )}

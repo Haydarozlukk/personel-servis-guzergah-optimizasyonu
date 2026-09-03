@@ -25,6 +25,7 @@ import {
 type ActiveOverlay = 'none' | 'add'
 // Tam optimizasyon, manuel planlama dönemi boyunca yalnızca açıkça etkinleştirilirse görünür.
 const fullOptimizationEnabled = import.meta.env.VITE_ENABLE_FULL_OPTIMIZATION === 'true'
+const appVersion = import.meta.env.VITE_APP_VERSION ?? 'yerel'
 
 export function App({ onLogout }: { onLogout: () => Promise<void> }) {
   const [activeOverlay, setActiveOverlay] = useState<ActiveOverlay>('none')
@@ -398,6 +399,8 @@ export function App({ onLogout }: { onLogout: () => Promise<void> }) {
       />}
 
       {stopPickVehicleId && <div className="op-map-pick-banner">Haritada yeni durağın yerini seçin · <button onClick={() => setStopPickVehicleId(null)}>Vazgeç</button></div>}
+
+      <div className="op-build-version" title="Yüklü arayüz kod sürümü">Kod sürümü: {appVersion}</div>
 
       <StatusStrip
         tone={statusTone}
