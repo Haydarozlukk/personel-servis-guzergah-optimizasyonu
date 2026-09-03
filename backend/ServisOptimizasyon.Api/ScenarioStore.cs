@@ -67,6 +67,7 @@ public sealed class PostgresScenarioStore(NpgsqlDataSource dataSource) : IScenar
           scenario_id uuid NOT NULL REFERENCES scenarios(id) ON DELETE CASCADE,
           vehicle_id text NOT NULL,
           capacity integer NOT NULL CHECK (capacity >= 1),
+          label text,
           plate text,
           reserved_seats integer NOT NULL DEFAULT 0,
           start_location geography(Point, 4326),

@@ -130,6 +130,8 @@ services:
         # olarak verilirse tarayıcıdaki değer `undefined` kalır ve arayüz
         # backend'e hiç bağlanamaz.
         VITE_API_BASE_URL: ${VITE_API_BASE_URL}
+        # Manuel planlama döneminde varsayılan kapalıdır; açılması için açıkça true verilmelidir.
+        VITE_ENABLE_FULL_OPTIMIZATION: ${VITE_ENABLE_FULL_OPTIMIZATION:-false}
     restart: unless-stopped
     ports:
       - "5173:80"

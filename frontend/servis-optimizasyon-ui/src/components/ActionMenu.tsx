@@ -4,7 +4,7 @@ type ActionMenuProps = {
   onOpenAdd: () => void
   onOpenVersions: () => void
   onExport: () => void
-  onFullReoptimize: () => void
+  onFullReoptimize?: () => void
   onLogout: () => void
 }
 
@@ -65,7 +65,7 @@ export function ActionMenu({ onOpenAdd, onOpenVersions, onExport, onFullReoptimi
     { key: 'add', label: 'Kişi Ekle', icon: <PersonPlusIcon />, onClick: () => run(onOpenAdd) },
     { key: 'versions', label: 'Versiyonlar', icon: <HistoryIcon />, onClick: () => run(onOpenVersions) },
     { key: 'export', label: 'Dışa Aktar', icon: <DownloadIcon />, onClick: () => run(onExport) },
-    { key: 'optimize', label: 'Tam Optimize', icon: <BoltIcon />, onClick: () => run(onFullReoptimize) },
+    ...(onFullReoptimize ? [{ key: 'optimize', label: 'Tam Optimize', icon: <BoltIcon />, onClick: () => run(onFullReoptimize) }] : []),
     { key: 'logout', label: 'Çıkış', icon: <LogoutIcon />, onClick: () => run(onLogout), danger: true },
   ]
 

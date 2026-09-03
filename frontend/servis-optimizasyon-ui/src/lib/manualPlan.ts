@@ -243,6 +243,15 @@ export function parseBulkVehicleRows(
   return { vehicles, errors }
 }
 
+export function moveVehicle(plan: ScenarioResult, vehicleId: string, direction: -1 | 1): ScenarioResult {
+  const vehicles = [...plan.vehicles]
+  const index = vehicles.findIndex((vehicle) => vehicle.id === vehicleId)
+  const target = index + direction
+  if (index < 0 || target < 0 || target >= vehicles.length) return plan
+  ;[vehicles[index], vehicles[target]] = [vehicles[target], vehicles[index]]
+  return recalculate({ ...plan, vehicles })
+}
+
 export function updateVehicle(plan: ScenarioResult, vehicleId: string, patch: Partial<ScenarioVehicle>): ScenarioResult {
   const vehicle = plan.vehicles.find((item) => item.id === vehicleId)
   if (!vehicle) return plan

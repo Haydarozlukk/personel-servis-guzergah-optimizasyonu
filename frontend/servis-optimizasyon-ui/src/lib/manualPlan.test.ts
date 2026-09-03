@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { ScenarioResult } from './api'
-import { assignPerson, assignPersonToStop, deleteUnassignedPerson, moveStop, unassignPerson, updateVehicle, vehicleHasAvailableSeat } from './manualPlan'
+import { assignPerson, assignPersonToStop, deleteUnassignedPerson, moveStop, moveVehicle, unassignPerson, updateVehicle, vehicleHasAvailableSeat } from './manualPlan'
 
 function plan(): ScenarioResult {
   return {
@@ -52,6 +52,11 @@ describe('manual plan operations', () => {
     const secondStop = assigned.routes[0].stopIds[1]
     const reordered = moveStop(assigned, 'v1', secondStop, -1)
     expect(reordered.routes[0].stopIds[0]).toBe(secondStop)
+  })
+
+  it('moves services in the user-defined fleet order', () => {
+    const reordered = moveVehicle(plan(), 'v2', -1)
+    expect(reordered.vehicles.map((vehicle) => vehicle.id)).toEqual(['v2', 'v1'])
   })
 
   it('does not assign a passenger to a service at effective capacity', () => {

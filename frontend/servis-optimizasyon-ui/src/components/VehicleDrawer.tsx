@@ -98,6 +98,7 @@ export function VehicleDrawer(props: VehicleDrawerProps) {
         <div className="op-drawer-card-body op-scroll">
           <div className="op-vehicle-editor">
             <label>İsim<input placeholder={vehicleId} value={label} onChange={(event) => setLabel(event.target.value)} /></label>
+            <label>Servis adı<input placeholder={vehicleId} value={label} onChange={(event) => setLabel(event.target.value)} /></label>
             <label>Plaka<input value={plate} onChange={(event) => setPlate(event.target.value)} /></label>
             <label>Fiziksel kapasite<input type="number" min={1} step={1} value={capacity} onChange={(event) => {
               const next = Math.max(1, Math.trunc(event.target.valueAsNumber || 1))

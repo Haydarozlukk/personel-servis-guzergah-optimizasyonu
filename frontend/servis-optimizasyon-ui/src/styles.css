@@ -808,6 +808,11 @@ input:focus-visible { outline: 3px solid rgba(37, 99, 235, .28); outline-offset:
   background: transparent;
   text-align: left;
 }
+.op-vehicle-list li { position: relative; }
+.op-vehicle-row { padding-right: 3.8rem; }
+.op-vehicle-order-buttons { position: absolute; right: .45rem; top: .55rem; display: flex; gap: .2rem; }
+.op-vehicle-order-buttons button { border: 1px solid var(--border); border-radius: .35rem; background: white; cursor: pointer; }
+.op-vehicle-order-buttons button:disabled { opacity: .3; cursor: not-allowed; }
 
 .op-vehicle-row:hover { background: var(--surface-muted); }
 .op-vehicle-row.selected { background: var(--green-light); border-color: #b7d6bf; }

@@ -7,6 +7,8 @@ COPY . .
 # build.args ile geçer. Runtime environment olarak verilirse değer undefined kalır.
 ARG VITE_API_BASE_URL=http://localhost:8080
 ENV VITE_API_BASE_URL=$VITE_API_BASE_URL
+ARG VITE_ENABLE_FULL_OPTIMIZATION=false
+ENV VITE_ENABLE_FULL_OPTIMIZATION=$VITE_ENABLE_FULL_OPTIMIZATION
 RUN npm run build
 
 FROM nginx:1.27-alpine

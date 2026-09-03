@@ -22,9 +22,10 @@ type VehicleListPanelProps = {
   onAddVehicle: () => void
   onUnassignAll: () => void
   onBulkAddVehicles: (text: string) => string[]
+  onMove: (id: string, direction: -1 | 1) => void
 }
 
-export function VehicleListPanel({ vehicles, selectedVehicleId, onSelect, unassignedPersonCount, assignedPersonCount, onOpenUnassigned, onAddVehicle, onUnassignAll, onBulkAddVehicles }: VehicleListPanelProps) {
+export function VehicleListPanel({ vehicles, selectedVehicleId, onSelect, unassignedPersonCount, assignedPersonCount, onOpenUnassigned, onAddVehicle, onUnassignAll, onBulkAddVehicles, onMove }: VehicleListPanelProps) {
   const [bulkOpen, setBulkOpen] = useState(false)
   const [bulkText, setBulkText] = useState('')
 
@@ -84,7 +85,7 @@ export function VehicleListPanel({ vehicles, selectedVehicleId, onSelect, unassi
         </button>
       )}
       <ul className="op-vehicle-list">
-        {vehicles.map((vehicle) => {
+        {vehicles.map((vehicle, index) => {
           const selected = vehicle.id === selectedVehicleId
           return (
             <li key={vehicle.id}>
@@ -109,6 +110,10 @@ export function VehicleListPanel({ vehicles, selectedVehicleId, onSelect, unassi
                 </div>
                 <span className={`op-vehicle-row-summary${vehicle.routed ? '' : ' unrouted'}`}>{vehicle.summary}</span>
               </button>
+              <span className="op-vehicle-order-buttons" aria-label={`${vehicle.label || vehicle.id} sıralama`}>
+                <button type="button" aria-label="Yukarı taşı" disabled={index === 0} onClick={() => onMove(vehicle.id, -1)}>↑</button>
+                <button type="button" aria-label="Aşağı taşı" disabled={index === vehicles.length - 1} onClick={() => onMove(vehicle.id, 1)}>↓</button>
+              </span>
             </li>
           )
         })}

@@ -18,11 +18,13 @@ import { VersionPanel } from './components/VersionPanel'
 import { UnassignedPanel } from './components/UnassignedPanel'
 import {
   addManualStop, addVehicle, assignPerson, assignPersonToStop, deleteUnassignedPerson, distributePersonsToPlan,
-  addVehicles, moveStop, moveStopLocation, moveVehicleStartLocation, parseBulkVehicleRows, removeStop, removeVehicle,
+  addVehicles, moveStop, moveStopLocation, moveVehicle, moveVehicleStartLocation, parseBulkVehicleRows, removeStop, removeVehicle,
   unassignAllPersons, unassignPerson, updateVehicle,
 } from './lib/manualPlan'
 
 type ActiveOverlay = 'none' | 'add'
+// Tam optimizasyon, manuel planlama dönemi boyunca yalnızca açıkça etkinleştirilirse görünür.
+const fullOptimizationEnabled = import.meta.env.VITE_ENABLE_FULL_OPTIMIZATION === 'true'
 
 export function App({ onLogout }: { onLogout: () => Promise<void> }) {
   const [activeOverlay, setActiveOverlay] = useState<ActiveOverlay>('none')
@@ -134,9 +136,6 @@ export function App({ onLogout }: { onLogout: () => Promise<void> }) {
 
   function handleFleetChanged(next: ScenarioResult) {
     persistManualPlan(next)
-    if (confirm('Filo değişikliği kaydedildi. Yeni araç yapısına göre tam optimizasyon yapılsın mı? Mevcut manuel ayarların değişebileceği uyarısı bir sonraki adımda gösterilecektir.')) {
-      void handleFullReoptimize(next)
-    }
   }
 
   function handleAddVehicle() {
@@ -144,7 +143,7 @@ export function App({ onLogout }: { onLogout: () => Promise<void> }) {
     let index = scenarioResult.vehicles.length + 1
     let id = `Servis-${String(index).padStart(3, '0')}`
     while (scenarioResult.vehicles.some((vehicle) => vehicle.id === id)) id = `Servis-${String(++index).padStart(3, '0')}`
-    const vehicle: ScenarioVehicle = { id, capacity: 18, reservedSeats: 0, effectiveCapacity: 18, start: null, plate: null }
+    const vehicle: ScenarioVehicle = { id, label: null, capacity: 18, reservedSeats: 0, effectiveCapacity: 18, start: null, plate: null }
     handleFleetChanged(addVehicle(scenarioResult, vehicle))
   }
 
@@ -286,7 +285,7 @@ export function App({ onLogout }: { onLogout: () => Promise<void> }) {
             onOpenAdd={() => setActiveOverlay('add')}
             onOpenVersions={() => scenarioResult && setShowVersions(true)}
             onExport={() => scenarioResult && void downloadPlanExport(scenarioResult.id)}
-            onFullReoptimize={() => void handleFullReoptimize()}
+            onFullReoptimize={fullOptimizationEnabled ? () => void handleFullReoptimize() : undefined}
             onLogout={() => void onLogout()}
           />
           {scenarioResult && (
@@ -314,6 +313,7 @@ export function App({ onLogout }: { onLogout: () => Promise<void> }) {
               if (vehicles.length > 0) persistManualPlan(addVehicles(scenarioResult, vehicles))
               return errors
             }}
+            onMove={(vehicleId, direction) => scenarioResult && persistManualPlan(moveVehicle(scenarioResult, vehicleId, direction))}
           />
         </>
       )}

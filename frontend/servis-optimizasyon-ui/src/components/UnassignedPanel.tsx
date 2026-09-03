@@ -24,6 +24,7 @@ export function UnassignedPanel({
   onClose: () => void
 }) {
   const reasonById = new Map((plan.unassignedPersons ?? []).map((item) => [item.id, item.reason]))
+  const vehicleLabel = (vehicle: Pick<ScenarioVehicle, 'id' | 'label' | 'plate'>) => [vehicle.id, vehicle.label?.trim(), vehicle.plate?.trim()].filter(Boolean).join(' · ')
   const people = plan.unassignedPersonIds.map((id) => plan.persons.find((person) => person.id === id)).filter(Boolean)
   return <div className="op-admin-layer"><section className="op-admin-panel op-scroll">
     <header><div><p className="op-kicker">Manuel yönetim</p><h2>Servis atanmamış yolcular</h2></div><button className="op-close" onClick={onClose}>×</button></header>
@@ -43,7 +44,7 @@ export function UnassignedPanel({
                   className="op-btn op-btn-secondary"
                   onClick={() => onAssign(person.id, candidate.vehicleId)}
                 >
-                  {candidate.vehicleId} · {Math.round(candidate.distanceMeters)} m · {candidate.availableSeats} boş koltuk
+                  {vehicleLabel(vehicles.find((vehicle) => vehicle.id === candidate.vehicleId) ?? { id: candidate.vehicleId })} · {Math.round(candidate.distanceMeters)} m · {candidate.availableSeats} boş koltuk
                 </button>
               </li>
             ))}
@@ -54,7 +55,7 @@ export function UnassignedPanel({
             <option value="" disabled>Tüm servislerden seç</option>
             {vehicles.map((vehicle) => {
               const available = vehicleHasAvailableSeat(plan, vehicle.id)
-              return <option value={vehicle.id} key={vehicle.id} disabled={!available}>{vehicle.id}{available ? '' : ' · dolu'}</option>
+              return <option value={vehicle.id} key={vehicle.id} disabled={!available}>{vehicleLabel(vehicle)}{available ? '' : ' · dolu'}</option>
             })}
           </select>
           <button className="op-btn op-btn-secondary" onClick={() => confirm('Bu yolcu veritabanından silinsin mi?') && onDelete(person.id)}>Kalıcı sil</button>
