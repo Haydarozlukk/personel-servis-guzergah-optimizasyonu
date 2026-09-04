@@ -997,6 +997,7 @@ input:focus-visible { outline: 3px solid rgba(37, 99, 235, .28); outline-offset:
 }
 
 .op-drawer-card-header h3 { margin: .2rem 0 0; font-size: 1.02rem; letter-spacing: -.02em; }
+.op-drawer-header-actions { display: flex; gap: .4rem; align-items: center; }
 
 .op-drawer-card-body { flex: 1; overflow-y: auto; padding: .9rem 1.2rem 1.2rem; }
 

@@ -214,6 +214,19 @@ export async function saveActivePlan(scenarioId: string, plan: ScenarioResult): 
   return response.json()
 }
 
+export async function optimizeVehicleRoute(
+  scenarioId: string,
+  vehicleId: string,
+  plan: ScenarioResult,
+): Promise<ScenarioResult> {
+  const response = await fetch(`${apiBaseUrl}/api/v1/scenarios/${scenarioId}/vehicles/${encodeURIComponent(vehicleId)}/optimize-route`, {
+    method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(plan),
+  })
+  if (!response.ok) throw new Error(await parseErrorMessage(response))
+  return response.json()
+}
+
 export async function fullReoptimize(
   scenarioId: string,
   snapshotName: string | null | undefined,

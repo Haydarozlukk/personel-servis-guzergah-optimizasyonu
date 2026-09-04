@@ -558,6 +558,137 @@ app.MapPut("/api/v1/scenarios/{scenarioId:guid}/active-plan", async (
         : Results.NotFound();
 }).RequireAuthorization();
 
+// Yolcu/servis üyeliğini sabit tutarak yalnızca seçili aracın durak sırasını
+// VROOM ile hesaplar. Tam optimizasyonun aksine diğer araçlara yolcu taşımaz.
+app.MapPost("/api/v1/scenarios/{scenarioId:guid}/vehicles/{vehicleId}/optimize-route", async (
+    Guid scenarioId,
+    string vehicleId,
+    ScenarioResult plan,
+    ClaimsPrincipal principal,
+    IScenarioStore store,
+    IPlanVersionStore versions,
+    VroomClient vroomClient,
+    RestrictedAreaChecker restrictedAreas,
+    CancellationToken cancellationToken) =>
+{
+    if (plan.Id != scenarioId)
+        return Results.ValidationProblem(new Dictionary<string, string[]> { ["plan"] = ["Plan senaryo kimliği adresle eşleşmiyor."] });
+    if (await store.TryGetInputAsync(scenarioId, cancellationToken) is null) return Results.NotFound();
+
+    var planErrors = ManualPlanValidator.Validate(plan);
+    if (planErrors.Count > 0) return Results.ValidationProblem(planErrors);
+
+    var vehicle = plan.Vehicles.SingleOrDefault(item => item.Id == vehicleId);
+    if (vehicle is null)
+        return Results.NotFound(new { vehicleId, message = "Servis bulunamadı." });
+
+    var currentRoute = plan.Routes.SingleOrDefault(item => item.VehicleId == vehicleId);
+    if (currentRoute is null || currentRoute.StopIds.Count < 2)
+        return Results.ValidationProblem(new Dictionary<string, string[]> { ["vehicleId"] = ["Rota optimizasyonu için serviste en az iki durak olmalıdır."] });
+
+    var stopsById = plan.Stops.ToDictionary(item => item.Id, StringComparer.Ordinal);
+    var selectedStops = new List<StopResult>();
+    foreach (var stopId in currentRoute.StopIds)
+    {
+        if (!stopsById.TryGetValue(stopId, out var stop))
+            return Results.ValidationProblem(new Dictionary<string, string[]> { ["vehicleId"] = [$"{vehicleId} rotasında bilinmeyen durak var: {stopId}."] });
+        selectedStops.Add(stop);
+    }
+
+    var passengerCount = selectedStops.Sum(stop => stop.AssignedPersonIds.Count);
+    if (passengerCount > vehicle.EffectiveCapacity)
+        return Results.ValidationProblem(new Dictionary<string, string[]> { ["vehicleId"] = [$"{vehicleId} etkin kapasitesi aşılıyor: {passengerCount}/{vehicle.EffectiveCapacity}."] });
+
+    var jobsById = selectedStops
+        .Select((stop, index) => (JobId: index + 1, Stop: stop))
+        .ToDictionary(item => item.JobId, item => item.Stop);
+    var request = new VroomRequest(
+        Jobs: selectedStops.Select((stop, index) => new VroomJob(
+            index + 1, stop.Id, stop.Location, [stop.AssignedPersonIds.Count], 0)).ToList(),
+        Vehicles:
+        [
+            // Araç başlangıç konumu eski veri sözleşmesinde işyeri konumu olarak
+            // kullanılabiliyordu. Bu nedenle başlangıç serbest, varış Bilkent'tir.
+            new VroomVehicle(1, vehicle.Id, "car", null, plan.Workplace,
+                [vehicle.EffectiveCapacity], [0, plan.DeadlineSeconds], selectedStops.Count),
+        ],
+        Options: new VroomOptions(true));
+
+    VroomResponse optimized;
+    try
+    {
+        optimized = await vroomClient.OptimizeAsync(request, cancellationToken);
+    }
+    catch (InvalidOperationException exception)
+    {
+        return Results.Problem(exception.Message, statusCode: StatusCodes.Status503ServiceUnavailable);
+    }
+
+    var unassigned = (optimized.Unassigned ?? [])
+        .Where(item => item.Type == "job")
+        .Select(item => item.Id)
+        .ToList();
+    if (unassigned.Count > 0)
+        return Results.ValidationProblem(new Dictionary<string, string[]> { ["vehicleId"] = ["VROOM seçili servisin bütün duraklarını rotalayamadı; mevcut plan değiştirilmedi."] });
+
+    var vroomRoute = (optimized.Routes ?? []).SingleOrDefault(route => route.Vehicle == 1);
+    if (vroomRoute is null)
+        return Results.Problem("VROOM seçili servis için rota döndürmedi.", statusCode: StatusCodes.Status503ServiceUnavailable);
+
+    var stopSteps = (vroomRoute.Steps ?? [])
+        .Where(step => step.Type == "job" && step.Job.HasValue && jobsById.ContainsKey(step.Job.Value))
+        .Select(step => new RouteStepResult(
+            jobsById[step.Job!.Value].Id,
+            step.Arrival ?? 0,
+            step.Load?.FirstOrDefault() ?? 0))
+        .ToList();
+    if (stopSteps.Count != selectedStops.Count)
+        return Results.Problem("VROOM eksik durak sırası döndürdü; mevcut plan değiştirilmedi.", statusCode: StatusCodes.Status503ServiceUnavailable);
+
+    var arrivalSeconds = (vroomRoute.Steps ?? []).LastOrDefault(step => step.Type == "end")?.Arrival
+        ?? (vroomRoute.Steps ?? []).LastOrDefault()?.Arrival
+        ?? 0;
+    var optimizedRoute = new RouteResult(
+        vehicle.Id,
+        vroomRoute.Distance,
+        vroomRoute.Duration,
+        passengerCount,
+        vroomRoute.Geometry ?? string.Empty,
+        stopSteps.Select(step => step.StopId).ToList(),
+        stopSteps,
+        arrivalSeconds,
+        arrivalSeconds <= plan.DeadlineSeconds)
+    {
+        RestrictedAreasCrossed = [.. restrictedAreas.FindCrossings(vroomRoute.Geometry ?? string.Empty)],
+    };
+
+    var warnings = plan.Warnings
+        .Where(warning => !warning.StartsWith($"{vehicle.Id} rota", StringComparison.Ordinal))
+        .Append($"{vehicle.Label ?? vehicle.Id} rota sırası, yolcu üyelikleri korunarak optimize edildi.")
+        .Distinct(StringComparer.Ordinal)
+        .ToList();
+    var savedPlan = plan with
+    {
+        Routes = plan.Routes.Select(route => route.VehicleId == vehicle.Id ? optimizedRoute : route).ToList(),
+        DeadlineMet = plan.Routes.Where(route => route.VehicleId != vehicle.Id).All(route => route.DeadlineMet) && optimizedRoute.DeadlineMet,
+        Warnings = warnings,
+        UpdatedAt = DateTimeOffset.UtcNow,
+    };
+
+    var createdBy = principal.FindFirstValue(ClaimTypes.Email) ?? "unknown";
+    await versions.SaveAsync(
+        scenarioId,
+        $"{vehicle.Label ?? vehicle.Id} rota optimizasyonu öncesi",
+        "Yolcular sabit tutularak servis içi durak sıralaması öncesinde otomatik yedek alındı.",
+        plan,
+        createdBy,
+        cancellationToken);
+
+    return await versions.SetActivePlanAsync(scenarioId, savedPlan, cancellationToken)
+        ? Results.Ok(savedPlan)
+        : Results.NotFound();
+}).RequireAuthorization();
+
 app.MapPost("/api/v1/scenarios/{scenarioId:guid}/full-reoptimize", async (
     Guid scenarioId,
     FullReoptimizeRequest request,

@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState } from 'react'
 import type { PersonPoint } from './lib/person'
-import { downloadPlanExport, saveActivePlan, type NearbyServicesResponse, type ScenarioResult, type ScenarioVehicle } from './lib/api'
+import { downloadPlanExport, optimizeVehicleRoute, saveActivePlan, type NearbyServicesResponse, type ScenarioResult, type ScenarioVehicle } from './lib/api'
 import { useScenarioSubmission } from './hooks/useScenarioSubmission'
 import { ScenarioMap } from './components/ScenarioMap'
 import { ActionMenu } from './components/ActionMenu'
@@ -35,6 +35,7 @@ export function App({ onLogout }: { onLogout: () => Promise<void> }) {
   const [draftLocation, setDraftLocation] = useState<[number, number] | null>(null)
   const [showVersions, setShowVersions] = useState(false)
   const [showUnassigned, setShowUnassigned] = useState(false)
+  const [optimizingVehicleId, setOptimizingVehicleId] = useState<string | null>(null)
   const [nearbySearch, setNearbySearch] = useState<NearbyServicesResponse | null>(null)
   const [stopPickVehicleId, setStopPickVehicleId] = useState<string | null>(null)
   const [focusedLocation, setFocusedLocation] = useState<number[] | null>(null)
@@ -124,6 +125,25 @@ export function App({ onLogout }: { onLogout: () => Promise<void> }) {
       })
       .catch((reason) => setManualError(reason instanceof Error ? reason.message : 'Manuel plan kaydedilemedi.'))
     return next
+  }
+
+  async function handleOptimizeSelectedVehicle() {
+    if (!scenarioResult || !selectedVehicleId) return
+    const route = scenarioResult.routes.find((item) => item.vehicleId === selectedVehicleId)
+    if (!route || route.stopIds.length < 2) return
+    const approved = confirm('Bu servisin yolcu listesi korunacak; yalnızca Bilkent varışlı durak sırası optimize edilecek. Devam edilsin mi?')
+    if (!approved) return
+    await persistenceQueue.current
+    setManualError('')
+    setOptimizingVehicleId(selectedVehicleId)
+    try {
+      const saved = await optimizeVehicleRoute(scenarioResult.id, selectedVehicleId, scenarioResult)
+      replaceScenarioResult(saved)
+    } catch (reason) {
+      setManualError(reason instanceof Error ? reason.message : 'Servis rotası optimize edilemedi.')
+    } finally {
+      setOptimizingVehicleId(null)
+    }
   }
 
   async function handleFullReoptimize(plan = scenarioResult) {
@@ -366,6 +386,8 @@ export function App({ onLogout }: { onLogout: () => Promise<void> }) {
           onMovePerson={(personId, vehicleId) => scenarioResult && persistManualPlan(assignPerson(scenarioResult, personId, vehicleId))}
           onUnassignPerson={(personId) => scenarioResult && persistManualPlan(unassignPerson(scenarioResult, personId))}
           onPickStop={() => { setStopPickVehicleId(selectedVehicleId) }}
+          onOptimizeRoute={() => void handleOptimizeSelectedVehicle()}
+          isOptimizingRoute={optimizingVehicleId === selectedVehicleId}
           onMoveStop={(stopId, direction) => scenarioResult && persistManualPlan(moveStop(scenarioResult, selectedVehicleId, stopId, direction))}
           onAssignToStop={(personId, stopId) => scenarioResult && persistManualPlan(assignPersonToStop(scenarioResult, personId, stopId))}
           onDeleteStop={(stopId) => scenarioResult && persistManualPlan(removeStop(scenarioResult, selectedVehicleId, stopId))}

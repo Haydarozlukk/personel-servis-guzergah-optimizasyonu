@@ -20,6 +20,8 @@ type VehicleDrawerProps = {
   onMovePerson: (personId: string, vehicleId: string) => void
   onUnassignPerson: (personId: string) => void
   onPickStop: () => void
+  onOptimizeRoute: () => void
+  isOptimizingRoute: boolean
   onMoveStop: (stopId: string, direction: -1 | 1) => void
   onAssignToStop: (personId: string, stopId: string) => void
   onDeleteVehicle: () => void
@@ -140,7 +142,17 @@ export function VehicleDrawer(props: VehicleDrawerProps) {
       <div className="op-drawer-card">
         <div className="op-drawer-card-header">
           <div><p className="op-kicker">Güzergâh</p><h3>Kullanıcı sıralaması</h3></div>
-          <button className="op-btn op-btn-secondary op-btn-small" onClick={props.onPickStop}>+ Haritadan durak</button>
+          <div className="op-drawer-header-actions">
+            <button
+              className="op-btn op-btn-primary op-btn-small"
+              disabled={routeStops.length < 2 || props.isOptimizingRoute}
+              title="Yolcuları değiştirmeden, seçili servisin Bilkent varışlı durak sırasını optimize eder"
+              onClick={props.onOptimizeRoute}
+            >
+              {props.isOptimizingRoute ? 'Hesaplanıyor…' : 'Rotayı optimize et'}
+            </button>
+            <button className="op-btn op-btn-secondary op-btn-small" onClick={props.onPickStop}>+ Haritadan durak</button>
+          </div>
         </div>
         <div className="op-drawer-card-body">
           <div className="op-person-search">
