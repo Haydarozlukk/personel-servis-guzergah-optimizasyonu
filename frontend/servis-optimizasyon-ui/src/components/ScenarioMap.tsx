@@ -458,6 +458,11 @@ export function ScenarioMap({
               ? (group.index - (group.total - 1) / 2) * 0.00004
               : 0
             const position: [number, number] = [home.position[0], home.position[1] + offsetLongitude]
+            const stop = home.stopId ? stopById.get(home.stopId) : null
+            const walkingMeters = home.walkingDistanceMeters
+            const walkingMinutes = home.walkingDurationSeconds === null
+              ? null
+              : Math.max(1, Math.round(home.walkingDurationSeconds / 60))
             return (
               <Marker
                 key={`home-${home.id}`}
@@ -465,8 +470,17 @@ export function ScenarioMap({
                 icon={createHomeIcon(home.color)}
               >
                 <Tooltip direction="top" offset={[0, -14]}>
-                  {home.name || home.id} · {home.vehicleId ?? 'servis atanmadı'}
+                  <strong>{home.name || home.id}</strong> · {home.vehicleId ?? 'servis atanmadı'}
+                  {stop && walkingMeters !== null && (
+                    <><br />Durağa yürüyüş: {Math.round(walkingMeters)} m{walkingMinutes !== null ? ` · ~${walkingMinutes} dk` : ''}</>
+                  )}
                 </Tooltip>
+                <Popup>
+                  <strong>{home.name || home.id}</strong><br />
+                  {stop && walkingMeters !== null
+                    ? <>Durak: {getStopDisplayName(stop)}<br />Durağa yürüyüş: {Math.round(walkingMeters)} m{walkingMinutes !== null ? ` · ~${walkingMinutes} dk` : ''}</>
+                    : 'Servis durağı henüz atanmadı.'}
+                </Popup>
               </Marker>
             )
           })}

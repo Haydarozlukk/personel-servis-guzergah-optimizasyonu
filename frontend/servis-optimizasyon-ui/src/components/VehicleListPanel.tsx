@@ -20,13 +20,14 @@ type VehicleListPanelProps = {
   unassignedPersonCount: number
   assignedPersonCount: number
   onOpenUnassigned: () => void
+  onOpenAllPassengers: () => void
   onAddVehicle: () => void
   onUnassignAll: () => void
   onBulkAddVehicles: (text: string) => string[]
   onMove: (id: string, direction: -1 | 1) => void
 }
 
-export function VehicleListPanel({ vehicles, selectedVehicleId, onSelect, unassignedPersonCount, assignedPersonCount, onOpenUnassigned, onAddVehicle, onUnassignAll, onBulkAddVehicles, onMove }: VehicleListPanelProps) {
+export function VehicleListPanel({ vehicles, selectedVehicleId, onSelect, unassignedPersonCount, assignedPersonCount, onOpenUnassigned, onOpenAllPassengers, onAddVehicle, onUnassignAll, onBulkAddVehicles, onMove }: VehicleListPanelProps) {
   const [bulkOpen, setBulkOpen] = useState(false)
   const [bulkText, setBulkText] = useState('')
 
@@ -75,6 +76,9 @@ export function VehicleListPanel({ vehicles, selectedVehicleId, onSelect, unassi
       {unassignedPersonCount > 0 && (
         <button className="op-vehicle-panel-warning op-warning-button" onClick={onOpenUnassigned}>{unassignedPersonCount} yolcu servis atanmamış · aç</button>
       )}
+      <button className="op-btn op-btn-secondary op-btn-small" onClick={onOpenAllPassengers}>
+        Tüm yolcuları yönet ({assignedPersonCount + unassignedPersonCount})
+      </button>
       {assignedPersonCount > 0 && (
         <button
           className="op-btn op-btn-secondary op-btn-small"

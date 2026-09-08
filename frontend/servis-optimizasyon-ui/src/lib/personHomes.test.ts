@@ -126,6 +126,24 @@ describe('buildPersonHomes', () => {
     expect(homes[0].position).toEqual([39.8695189, 32.6665836])
   })
 
+  it('keeps each passenger\'s own walking details for shared stops', () => {
+    const sharedStop = stop('s1', ['p1', 'p2'])
+    sharedStop.walkingDistancesMeters = { p1: 120, p2: 380 }
+    sharedStop.walkingDurationsSeconds = { p1: 95, p2: 310 }
+    const homes = buildPersonHomes({
+      persons: [person('p1'), person('p2')],
+      stops: [sharedStop],
+      routes: [route('Servis-001', ['s1'])],
+      vehicleColors: colors,
+      selectedVehicleId: null,
+    })
+
+    expect(homes.map((home) => [home.id, home.stopId, home.walkingDistanceMeters, home.walkingDurationSeconds])).toEqual([
+      ['p1', 's1', 120, 95],
+      ['p2', 's1', 380, 310],
+    ])
+  })
+
   it('skips people whose coordinates are missing or malformed', () => {
     const homes = buildPersonHomes({
       persons: [

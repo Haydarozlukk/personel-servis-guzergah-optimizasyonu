@@ -136,7 +136,7 @@ button { -webkit-tap-highlight-color: transparent; }
 
 .op-admin-layer { position: fixed; inset: 0; z-index: 2200; display: grid; place-items: center; padding: 1.5rem; background: rgba(9, 47, 29, .34); backdrop-filter: blur(4px); }
 .op-admin-panel { width: min(760px, 100%); max-height: min(82dvh, 760px); overflow: auto; padding: 1.3rem; border-radius: var(--radius-lg); background: var(--surface); box-shadow: var(--shadow-lg); }
-.op-admin-panel > header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 1rem; }
+.op-admin-panel > header { position: sticky; top: -1.3rem; z-index: 2; display: flex; align-items: flex-start; justify-content: space-between; margin: 0 -1.3rem 1rem; padding: 1.3rem 1.3rem 1rem; background: var(--surface); border-bottom: 1px solid var(--border); }
 .op-admin-panel h2 { margin: .25rem 0 0; }
 .op-admin-user { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: .85rem; border-top: 1px solid var(--border); }
 .op-admin-user > div:first-child { display: grid; gap: .2rem; }
@@ -147,6 +147,8 @@ button { -webkit-tap-highlight-color: transparent; }
 .op-unassigned-reason { margin: 0; color: var(--muted); font-size: .72rem; line-height: 1.4; }
 .op-unassigned-candidates { display: flex; flex-wrap: wrap; gap: .4rem; margin: 0; padding: 0; list-style: none; }
 .op-unassigned-candidates .op-btn { padding: .35rem .55rem; font-size: .68rem; }
+.op-all-passengers-note { margin: 0 0 .85rem; color: var(--muted); font-size: .76rem; line-height: 1.4; }
+.op-all-passenger select { min-width: min(300px, 45vw); }
 
 .op-version-save { margin-top: 1rem; padding-top: 1rem; border-top: 1px dashed var(--border-strong); }
 .op-version-save .op-admin-form { margin-top: .6rem; }

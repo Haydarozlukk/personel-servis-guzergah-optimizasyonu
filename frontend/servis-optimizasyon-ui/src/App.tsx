@@ -16,6 +16,7 @@ import { routeStopIds } from './lib/routeLike'
 import { buildPersonHomes } from './lib/personHomes'
 import { VersionPanel } from './components/VersionPanel'
 import { UnassignedPanel } from './components/UnassignedPanel'
+import { AllPassengersPanel } from './components/AllPassengersPanel'
 import {
   addManualStop, addVehicle, assignPerson, assignPersonToStop, deleteUnassignedPerson, distributePersonsToPlan,
   addVehicles, moveStop, moveStopLocation, moveVehicle, moveVehicleStartLocation, parseBulkVehicleRows, removeStop, removeVehicle,
@@ -35,6 +36,7 @@ export function App({ onLogout }: { onLogout: () => Promise<void> }) {
   const [draftLocation, setDraftLocation] = useState<[number, number] | null>(null)
   const [showVersions, setShowVersions] = useState(false)
   const [showUnassigned, setShowUnassigned] = useState(false)
+  const [showAllPassengers, setShowAllPassengers] = useState(false)
   const [optimizingVehicleId, setOptimizingVehicleId] = useState<string | null>(null)
   const [nearbySearch, setNearbySearch] = useState<NearbyServicesResponse | null>(null)
   const [stopPickVehicleId, setStopPickVehicleId] = useState<string | null>(null)
@@ -326,6 +328,7 @@ export function App({ onLogout }: { onLogout: () => Promise<void> }) {
             unassignedPersonCount={unassignedPersonIds.length}
             assignedPersonCount={assignedPersonCount}
             onOpenUnassigned={() => setShowUnassigned(true)}
+            onOpenAllPassengers={() => setShowAllPassengers(true)}
             onAddVehicle={handleAddVehicle}
             onUnassignAll={() => scenarioResult && persistManualPlan(unassignAllPersons(scenarioResult))}
             onBulkAddVehicles={(text) => {
@@ -418,6 +421,12 @@ export function App({ onLogout }: { onLogout: () => Promise<void> }) {
         onClose={() => setShowUnassigned(false)}
         onAssign={(personId, vehicleId) => persistManualPlan(assignPerson(scenarioResult, personId, vehicleId))}
         onDelete={(personId) => persistManualPlan(deleteUnassignedPerson(scenarioResult, personId))}
+      />}
+      {showAllPassengers && scenarioResult && <AllPassengersPanel
+        plan={scenarioResult}
+        vehicles={allVehicles}
+        onClose={() => setShowAllPassengers(false)}
+        onAssign={(personId, vehicleId) => persistManualPlan(assignPerson(scenarioResult, personId, vehicleId))}
       />}
 
       {stopPickVehicleId && <div className="op-map-pick-banner">Haritada yeni durağın yerini seçin · <button onClick={() => setStopPickVehicleId(null)}>Vazgeç</button></div>}
