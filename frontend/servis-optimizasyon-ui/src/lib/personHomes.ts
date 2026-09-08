@@ -48,7 +48,7 @@ export function buildPersonHomes(input: {
   selectedVehicleId: string | null
 }): PersonHome[] {
   const vehicleByPerson = buildVehicleIdByPersonId(input.routes, input.stops)
-  const routedStopIds = new Set(input.routes.flatMap((route) => routeStopIds(route)))
+  const routedStopIds = new Set(input.routes.flatMap((route) => [...routeStopIds(route)]))
   const stopByPerson = new Map<string, ScenarioStop>()
   for (const stop of input.stops) {
     if (!routedStopIds.has(stop.id)) continue
