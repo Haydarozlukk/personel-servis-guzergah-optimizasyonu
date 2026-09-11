@@ -415,6 +415,23 @@ export function moveStopLocation(
   return recalculate({ ...plan, stops, routes })
 }
 
+// Ev konumu elle düzeltildiğinde servis, durak ve rota üyelikleri aynen kalır.
+// Yalnızca gösterilen ev noktası ve bu kişinin mevcut durağa yürüme ölçümü güncellenir.
+export function movePersonHomeLocation(
+  plan: ScenarioResult,
+  personId: string,
+  location: [number, number],
+): ScenarioResult {
+  const normalizedLocation = normalizeLngLat(location)
+  if (!plan.persons.some((person) => person.id === personId)) return plan
+  return recalculate({
+    ...plan,
+    persons: plan.persons.map((person) => person.id === personId
+      ? { ...person, location: normalizedLocation }
+      : person),
+  })
+}
+
 export function moveVehicleStartLocation(
   plan: ScenarioResult,
   vehicleId: string,

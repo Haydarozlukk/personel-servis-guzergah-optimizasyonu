@@ -17,10 +17,11 @@ import { buildPersonHomes } from './lib/personHomes'
 import { VersionPanel } from './components/VersionPanel'
 import { UnassignedPanel } from './components/UnassignedPanel'
 import { AllPassengersPanel } from './components/AllPassengersPanel'
+import { UnknownLocationsPanel } from './components/UnknownLocationsPanel'
 import {
   addManualStop, addVehicle, assignPerson, assignPersonToStop, deleteUnassignedPerson, distributePersonsToPlan,
   addVehicles, moveStop, moveStopLocation, moveVehicle, moveVehicleStartLocation, parseBulkVehicleRows, removeStop, removeVehicle,
-  unassignAllPersons, unassignPerson, updateVehicle,
+  movePersonHomeLocation, unassignAllPersons, unassignPerson, updateVehicle,
 } from './lib/manualPlan'
 
 type ActiveOverlay = 'none' | 'add'
@@ -37,6 +38,7 @@ export function App({ onLogout }: { onLogout: () => Promise<void> }) {
   const [showVersions, setShowVersions] = useState(false)
   const [showUnassigned, setShowUnassigned] = useState(false)
   const [showAllPassengers, setShowAllPassengers] = useState(false)
+  const [showUnknownLocations, setShowUnknownLocations] = useState(false)
   const [optimizingVehicleId, setOptimizingVehicleId] = useState<string | null>(null)
   const [nearbySearch, setNearbySearch] = useState<NearbyServicesResponse | null>(null)
   const [stopPickVehicleId, setStopPickVehicleId] = useState<string | null>(null)
@@ -281,6 +283,18 @@ export function App({ onLogout }: { onLogout: () => Promise<void> }) {
     persistManualPlan(next)
   }
 
+  function handleMovePersonHome(personId: string, location: [number, number]) {
+    if (!scenarioResult) return
+    persistManualPlan(movePersonHomeLocation(scenarioResult, personId, location))
+  }
+
+  function focusPersonHome(personId: string) {
+    const person = scenarioResult?.persons.find((item) => item.id === personId)
+    if (!person) return
+    setFocusedLocation(person.location)
+    setShowUnknownLocations(false)
+  }
+
   return (
     <main className="op-shell">
       <ScenarioMap
@@ -298,6 +312,7 @@ export function App({ onLogout }: { onLogout: () => Promise<void> }) {
         searchMarker={nearbySearch ? { location: nearbySearch.location, address: nearbySearch.address } : null}
         onPickLocation={handleMapPick}
         onMoveStopLocation={handleMoveStopLocation}
+        onMovePersonHome={handleMovePersonHome}
         onMoveVehicleStart={handleMoveVehicleStart}
         onSelectVehicle={handleSelectVehicle}
       />
@@ -329,6 +344,7 @@ export function App({ onLogout }: { onLogout: () => Promise<void> }) {
             assignedPersonCount={assignedPersonCount}
             onOpenUnassigned={() => setShowUnassigned(true)}
             onOpenAllPassengers={() => setShowAllPassengers(true)}
+            onOpenUnknownLocations={() => setShowUnknownLocations(true)}
             onAddVehicle={handleAddVehicle}
             onUnassignAll={() => scenarioResult && persistManualPlan(unassignAllPersons(scenarioResult))}
             onBulkAddVehicles={(text) => {
@@ -427,6 +443,11 @@ export function App({ onLogout }: { onLogout: () => Promise<void> }) {
         vehicles={allVehicles}
         onClose={() => setShowAllPassengers(false)}
         onAssign={(personId, vehicleId) => persistManualPlan(assignPerson(scenarioResult, personId, vehicleId))}
+      />}
+      {showUnknownLocations && scenarioResult && <UnknownLocationsPanel
+        scenarioId={scenarioResult.id}
+        onClose={() => setShowUnknownLocations(false)}
+        onFocus={focusPersonHome}
       />}
 
       {stopPickVehicleId && <div className="op-map-pick-banner">Haritada yeni durağın yerini seçin · <button onClick={() => setStopPickVehicleId(null)}>Vazgeç</button></div>}

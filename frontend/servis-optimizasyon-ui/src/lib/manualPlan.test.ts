@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { ScenarioResult } from './api'
-import { assignPerson, assignPersonToStop, deleteUnassignedPerson, moveStop, moveVehicle, unassignPerson, updateVehicle, vehicleHasAvailableSeat } from './manualPlan'
+import { assignPerson, assignPersonToStop, deleteUnassignedPerson, movePersonHomeLocation, moveStop, moveVehicle, unassignPerson, updateVehicle, vehicleHasAvailableSeat } from './manualPlan'
 
 function plan(): ScenarioResult {
   return {
@@ -57,6 +57,14 @@ describe('manual plan operations', () => {
   it('moves services in the user-defined fleet order', () => {
     const reordered = moveVehicle(plan(), 'v2', -1)
     expect(reordered.vehicles.map((vehicle) => vehicle.id)).toEqual(['v2', 'v1'])
+  })
+
+  it('moves only the home coordinate without changing service assignments or stops', () => {
+    const next = movePersonHomeLocation(plan(), 'p1', [32.9, 39.8])
+    expect(next.persons.find((person) => person.id === 'p1')?.location).toEqual([32.9, 39.8])
+    expect(next.stops.map((stop) => ({ id: stop.id, location: stop.location, people: stop.assignedPersonIds })))
+      .toEqual(plan().stops.map((stop) => ({ id: stop.id, location: stop.location, people: stop.assignedPersonIds })))
+    expect(next.routes.map((route) => route.stopIds)).toEqual(plan().routes.map((route) => route.stopIds))
   })
 
   it('does not assign a passenger to a service at effective capacity', () => {

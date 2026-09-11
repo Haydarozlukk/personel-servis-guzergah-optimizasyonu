@@ -97,6 +97,7 @@ if (string.IsNullOrWhiteSpace(connectionString))
     builder.Services.AddSingleton<IScenarioStore, InMemoryScenarioStore>();
     builder.Services.AddSingleton<IUserStore, InMemoryUserStore>();
     builder.Services.AddSingleton<IPlanVersionStore, InMemoryPlanVersionStore>();
+    builder.Services.AddSingleton<IAddressReviewStore, InMemoryAddressReviewStore>();
 }
 else
 {
@@ -104,6 +105,7 @@ else
     builder.Services.AddSingleton<IScenarioStore, PostgresScenarioStore>();
     builder.Services.AddSingleton<IUserStore, PostgresUserStore>();
     builder.Services.AddSingleton<IPlanVersionStore, PostgresPlanVersionStore>();
+    builder.Services.AddSingleton<IAddressReviewStore, PostgresAddressReviewStore>();
 }
 
 builder.Services.AddHealthChecks();
@@ -497,6 +499,13 @@ app.MapGet("/api/v1/scenarios/{scenarioId:guid}", async (
 
 app.MapGet("/api/v1/restricted-areas", (RestrictedAreaChecker restrictedAreas) =>
     Results.Content(restrictedAreas.GeoJson, "application/geo+json"))
+    .RequireAuthorization();
+
+app.MapGet("/api/v1/scenarios/{scenarioId:guid}/address-reviews", async (
+    Guid scenarioId,
+    IAddressReviewStore reviews,
+    CancellationToken cancellationToken) =>
+    Results.Ok(await reviews.ListAsync(scenarioId, cancellationToken)))
     .RequireAuthorization();
 
 app.MapPut("/api/v1/scenarios/{scenarioId:guid}/active-plan", async (
@@ -945,6 +954,7 @@ static async Task EnsureSchemaWithRetryAsync(WebApplication app)
     var store = scope.ServiceProvider.GetRequiredService<IScenarioStore>();
     var userStore = scope.ServiceProvider.GetRequiredService<IUserStore>();
     var versionStore = scope.ServiceProvider.GetRequiredService<IPlanVersionStore>();
+    var reviewStore = scope.ServiceProvider.GetRequiredService<IAddressReviewStore>();
 
     for (var attempt = 1; attempt <= 10; attempt++)
     {
@@ -953,6 +963,7 @@ static async Task EnsureSchemaWithRetryAsync(WebApplication app)
             await store.EnsureSchemaAsync(CancellationToken.None);
             await userStore.EnsureSchemaAsync(CancellationToken.None);
             await versionStore.EnsureSchemaAsync(CancellationToken.None);
+            await reviewStore.EnsureSchemaAsync(CancellationToken.None);
             await EnsureBootstrapAdminAsync(scope.ServiceProvider, app.Configuration);
             return;
         }
@@ -969,6 +980,7 @@ static async Task EnsureSchemaWithRetryAsync(WebApplication app)
     await store.EnsureSchemaAsync(CancellationToken.None);
     await userStore.EnsureSchemaAsync(CancellationToken.None);
     await versionStore.EnsureSchemaAsync(CancellationToken.None);
+    await reviewStore.EnsureSchemaAsync(CancellationToken.None);
     await EnsureBootstrapAdminAsync(scope.ServiceProvider, app.Configuration);
 }
 

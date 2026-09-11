@@ -33,6 +33,13 @@ export type PlanVersion = {
   isActive: boolean
 }
 
+export type AddressReviewCandidate = {
+  personId: string
+  name: string
+  foundAddress: string
+  sourceAddress: string
+}
+
 type GeneratedGeocodingSuggestion = components['schemas']['GeocodingSuggestion']
 type GeneratedNearbyServicesResponse = components['schemas']['NearbyServicesResponse']
 
@@ -128,6 +135,12 @@ export async function getRestrictedAreas(): Promise<RestrictedAreaCollection> {
 export async function getScenarioResult(scenarioId: string): Promise<ScenarioResult | null> {
   const response = await fetch(`${apiBaseUrl}/api/v1/scenarios/${scenarioId}`, { credentials: 'include' })
   if (response.status === 404) return null
+  if (!response.ok) throw new Error(await parseErrorMessage(response))
+  return response.json()
+}
+
+export async function getAddressReviews(scenarioId: string): Promise<AddressReviewCandidate[]> {
+  const response = await fetch(`${apiBaseUrl}/api/v1/scenarios/${scenarioId}/address-reviews`, { credentials: 'include' })
   if (!response.ok) throw new Error(await parseErrorMessage(response))
   return response.json()
 }

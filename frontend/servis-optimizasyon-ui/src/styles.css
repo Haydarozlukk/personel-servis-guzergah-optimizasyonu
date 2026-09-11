@@ -1054,6 +1054,11 @@ input:focus-visible { outline: 3px solid rgba(37, 99, 235, .28); outline-offset:
 .op-advice-note { padding: .55rem; border-radius: .55rem; color: #735200; background: #fff9e8; font-size: .67rem; line-height: 1.4; }
 .op-suggestion-icon { display: inline-grid; place-items: center; width: 1rem; height: 1rem; border-radius: 50%; color: white; background: var(--orange); font-size: .62rem; font-style: normal; cursor: help; }
 .op-btn-small { min-height: 2rem; padding: .35rem .55rem; font-size: .68rem; }
+.op-btn-warning { color: #8a5700; border-color: #f1c36d; background: #fff3d6; }
+.op-location-review { width: 100%; display: grid; gap: .22rem; margin: 0 0 .55rem; padding: .75rem; border: 1px solid #f1c36d; border-radius: .7rem; color: var(--ink); background: #fffaf0; text-align: left; cursor: pointer; }
+.op-location-review:hover { background: #fff3d6; }
+.op-location-review span { color: var(--faint); font-size: .7rem; }
+.op-location-review small { color: var(--muted); font-size: .72rem; line-height: 1.35; }
 .op-order-buttons { margin-left: auto; display: flex; gap: .2rem; }
 .op-order-buttons button { border: 1px solid var(--border); border-radius: .35rem; background: white; cursor: pointer; }
 .op-order-buttons button:disabled { opacity: .3; cursor: not-allowed; }

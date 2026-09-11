@@ -38,6 +38,7 @@ type ScenarioMapProps = {
   searchMarker?: { location: number[]; address: string } | null
   onPickLocation?: (position: [number, number]) => void
   onMoveStopLocation?: (stopId: string, location: [number, number]) => void
+  onMovePersonHome?: (personId: string, location: [number, number]) => void
   onMoveVehicleStart?: (vehicleId: string, location: [number, number]) => void
   onSelectVehicle?: (vehicleId: string) => void
 }
@@ -257,6 +258,7 @@ export function ScenarioMap({
   searchMarker,
   onPickLocation,
   onMoveStopLocation,
+  onMovePersonHome,
   onMoveVehicleStart,
   onSelectVehicle,
 }: ScenarioMapProps) {
@@ -467,10 +469,17 @@ export function ScenarioMap({
               <Marker
                 key={`home-${home.id}`}
                 position={position}
+                draggable={!!onMovePersonHome}
                 icon={createHomeIcon(home.color)}
+                eventHandlers={{
+                  dragend(e) {
+                    const latlng = e.target.getLatLng()
+                    onMovePersonHome?.(home.id, [latlng.lng, latlng.lat])
+                  },
+                }}
               >
                 <Tooltip direction="top" offset={[0, -14]}>
-                  <strong>{home.name || home.id}</strong> · {home.vehicleId ?? 'servis atanmadı'}
+                  <strong>{home.name || home.id}</strong> · {home.vehicleId ?? 'servis atanmadı'}<br />Ev konumunu sürükleyerek düzeltebilirsiniz.
                   {stop && walkingMeters !== null && (
                     <><br />Durağa yürüyüş: {Math.round(walkingMeters)} m{walkingMinutes !== null ? ` · ~${walkingMinutes} dk` : ''}</>
                   )}
