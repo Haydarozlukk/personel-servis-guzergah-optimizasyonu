@@ -166,14 +166,21 @@ export function assignPersonToStop(
   })
 }
 
+export function deletePerson(plan: ScenarioResult, personId: string): ScenarioResult {
+  if (!plan.persons.some((person) => person.id === personId)) return plan
+  const withoutPerson = withoutAssignment(plan, personId)
+  return recalculate({
+    ...withoutPerson,
+    persons: withoutPerson.persons.filter((person) => person.id !== personId),
+    unassignedPersonIds: withoutPerson.unassignedPersonIds.filter((id) => id !== personId),
+    unassignedPersons: withoutPerson.unassignedPersons?.filter((person) => person.id !== personId),
+  })
+}
+
+// Eski çağrıları kırmadan, yalnızca atanmamış yolcu silme davranışını korur.
 export function deleteUnassignedPerson(plan: ScenarioResult, personId: string): ScenarioResult {
   if (!plan.unassignedPersonIds.includes(personId)) return plan
-  return recalculate({
-    ...plan,
-    persons: plan.persons.filter((person) => person.id !== personId),
-    unassignedPersonIds: plan.unassignedPersonIds.filter((id) => id !== personId),
-    unassignedPersons: plan.unassignedPersons?.filter((person) => person.id !== personId),
-  })
+  return deletePerson(plan, personId)
 }
 
 export function addUnassignedPerson(

@@ -662,6 +662,25 @@ input:focus-visible { outline: 3px solid rgba(37, 99, 235, .28); outline-offset:
 
 .op-map-search-error { margin: .4rem 0 0; color: var(--red); font-size: .76rem; text-align: center; }
 
+.op-person-home-search {
+  position: absolute;
+  top: 78px;
+  left: 50%;
+  z-index: 1100;
+  width: min(330px, calc(100vw - 380px - 100px));
+  transform: translateX(-50%);
+  border-radius: .8rem;
+  background: var(--surface);
+  box-shadow: var(--shadow-md);
+}
+.op-person-home-search label { display: flex; align-items: center; gap: .6rem; padding: .58rem .8rem; }
+.op-person-home-search input { min-width: 0; flex: 1; border: 0; outline: 0; background: transparent; color: var(--ink); font: inherit; font-size: .82rem; }
+.op-person-home-search label > button { width: 1.45rem; height: 1.45rem; border: 0; border-radius: 50%; color: var(--muted); background: var(--surface-strong); cursor: pointer; }
+.op-person-home-search ul { max-height: 280px; margin: 0; padding: .35rem 0; overflow-y: auto; list-style: none; border-top: 1px solid var(--border); }
+.op-person-home-search li button { width: 100%; display: flex; justify-content: space-between; gap: .8rem; padding: .62rem .85rem; border: 0; color: var(--ink); background: transparent; text-align: left; cursor: pointer; }
+.op-person-home-search li button:hover { background: var(--surface-muted); }
+.op-person-home-search li span { color: var(--muted); font-size: .72rem; }
+
 .op-map-search-suggestions {
   max-height: min(360px, 55vh);
   margin: 0;
@@ -961,6 +980,9 @@ input:focus-visible { outline: 3px solid rgba(37, 99, 235, .28); outline-offset:
 .op-pending-list li button:disabled { cursor: not-allowed; opacity: .5; }
 
 .op-reoptimize { margin-top: .9rem; }
+
+.op-passenger-filter { display: grid; gap: .35rem; margin: 0 0 .85rem; color: var(--muted); font-size: .76rem; font-weight: 700; }
+.op-passenger-filter input { width: 100%; min-height: 2.6rem; padding: 0 .75rem; border: 1px solid var(--border-strong); border-radius: .65rem; color: var(--ink); background: var(--surface); font: inherit; }
 
 /* Vehicle drawer ----------------------------------------------------------- */
 

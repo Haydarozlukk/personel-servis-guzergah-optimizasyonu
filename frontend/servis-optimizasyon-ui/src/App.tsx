@@ -9,6 +9,7 @@ import { VehicleListPanel, type VehicleRow } from './components/VehicleListPanel
 import { OverlaySheet } from './components/OverlaySheet'
 import { AddPeopleSheet } from './components/AddPeopleSheet'
 import { type PendingPerson } from './components/PersonAddSheet'
+import { PersonHomeSearch } from './components/PersonHomeSearch'
 import { VehicleDrawer } from './components/VehicleDrawer'
 import { StatusStrip, type StatusTone } from './components/StatusStrip'
 import { routeColors } from './lib/colors'
@@ -19,7 +20,7 @@ import { UnassignedPanel } from './components/UnassignedPanel'
 import { AllPassengersPanel } from './components/AllPassengersPanel'
 import { UnknownLocationsPanel } from './components/UnknownLocationsPanel'
 import {
-  addManualStop, addVehicle, assignPerson, assignPersonToStop, deleteUnassignedPerson, distributePersonsToPlan,
+  addManualStop, addVehicle, assignPerson, assignPersonToStop, deletePerson, deleteUnassignedPerson, distributePersonsToPlan,
   addVehicles, moveStop, moveStopLocation, moveVehicle, moveVehicleStartLocation, parseBulkVehicleRows, removeStop, removeVehicle,
   movePersonHomeLocation, unassignAllPersons, unassignPerson, updateVehicle,
 } from './lib/manualPlan'
@@ -327,14 +328,17 @@ export function App({ onLogout }: { onLogout: () => Promise<void> }) {
             onLogout={() => void onLogout()}
           />
           {scenarioResult && (
-            <MapSearchBar
-              scenarioId={scenarioResult.id}
-              result={nearbySearch}
-              onResult={(result) => {
-                setNearbySearch(result)
-                if (result) setFocusedLocation(result.location)
-              }}
-            />
+            <>
+              <MapSearchBar
+                scenarioId={scenarioResult.id}
+                result={nearbySearch}
+                onResult={(result) => {
+                  setNearbySearch(result)
+                  if (result) setFocusedLocation(result.location)
+                }}
+              />
+              <PersonHomeSearch persons={scenarioResult.persons} onSelect={setFocusedLocation} />
+            </>
           )}
           <VehicleListPanel
             vehicles={vehicleRows}
@@ -443,6 +447,7 @@ export function App({ onLogout }: { onLogout: () => Promise<void> }) {
         vehicles={allVehicles}
         onClose={() => setShowAllPassengers(false)}
         onAssign={(personId, vehicleId) => persistManualPlan(assignPerson(scenarioResult, personId, vehicleId))}
+        onDelete={(personId) => persistManualPlan(deletePerson(scenarioResult, personId))}
       />}
       {showUnknownLocations && scenarioResult && <UnknownLocationsPanel
         scenarioId={scenarioResult.id}
