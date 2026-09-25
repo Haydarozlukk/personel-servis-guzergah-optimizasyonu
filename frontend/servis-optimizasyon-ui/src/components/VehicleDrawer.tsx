@@ -27,7 +27,7 @@ type VehicleDrawerProps = {
   onDeleteVehicle: () => void
   onDeleteStop: (stopId: string) => void
   onAddStopByAddress: (location: [number, number]) => void
-  onSelectStop?: (location: number[]) => void
+  onSelectStop?: (stopId: string, location: number[]) => void
 }
 
 export function VehicleDrawer(props: VehicleDrawerProps) {
@@ -177,7 +177,7 @@ export function VehicleDrawer(props: VehicleDrawerProps) {
           <ul className="op-drawer-stop-list">
             <li
               style={{ cursor: vehicle?.start ? 'pointer' : 'default' }}
-              onClick={() => vehicle?.start && props.onSelectStop?.(vehicle.start)}
+              onClick={() => vehicle?.start && props.onSelectStop?.(`start-${vehicleId}`, vehicle.start)}
               title="Haritada başlangıç noktasına git"
             >
               <i style={{ background: color }} />
@@ -190,7 +190,7 @@ export function VehicleDrawer(props: VehicleDrawerProps) {
                   key={stop.id}
                   className="op-stop-editor-row"
                   style={{ cursor: 'pointer' }}
-                  onClick={() => props.onSelectStop?.(stop.location)}
+                  onClick={() => props.onSelectStop?.(stop.id, stop.location)}
                   title="Haritada bu durağa git"
                 >
                   <i className="op-dot-stop" />
@@ -255,7 +255,7 @@ export function VehicleDrawer(props: VehicleDrawerProps) {
             })}
             <li
               style={{ cursor: workplace ? 'pointer' : 'default' }}
-              onClick={() => workplace && props.onSelectStop?.(workplace)}
+              onClick={() => workplace && props.onSelectStop?.('workplace', workplace)}
               title="Haritada varış noktasına git"
             >
               <i className="op-dot-workplace" />

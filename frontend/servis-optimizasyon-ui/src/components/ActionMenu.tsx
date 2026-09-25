@@ -5,6 +5,7 @@ type ActionMenuProps = {
   onOpenVersions: () => void
   onExport: () => void
   onFullReoptimize?: () => void
+  onOpenLongWalkers: () => void
   onLogout: () => void
 }
 
@@ -53,7 +54,7 @@ function LogoutIcon() {
   )
 }
 
-export function ActionMenu({ onOpenAdd, onOpenVersions, onExport, onFullReoptimize, onLogout }: ActionMenuProps) {
+export function ActionMenu({ onOpenAdd, onOpenVersions, onExport, onFullReoptimize, onOpenLongWalkers, onLogout }: ActionMenuProps) {
   const [open, setOpen] = useState(false)
 
   function run(action: () => void) {
@@ -63,6 +64,7 @@ export function ActionMenu({ onOpenAdd, onOpenVersions, onExport, onFullReoptimi
 
   const items: { key: string; label: string; icon: ReactNode; onClick: () => void; danger?: boolean }[] = [
     { key: 'add', label: 'Kişi Ekle', icon: <PersonPlusIcon />, onClick: () => run(onOpenAdd) },
+    { key: 'long-walkers', label: '500 m üzeri yürüyenler', icon: <PersonPlusIcon />, onClick: () => run(onOpenLongWalkers) },
     { key: 'versions', label: 'Versiyonlar', icon: <HistoryIcon />, onClick: () => run(onOpenVersions) },
     { key: 'export', label: 'Dışa Aktar', icon: <DownloadIcon />, onClick: () => run(onExport) },
     ...(onFullReoptimize ? [{ key: 'optimize', label: 'Tam Optimize', icon: <BoltIcon />, onClick: () => run(onFullReoptimize) }] : []),

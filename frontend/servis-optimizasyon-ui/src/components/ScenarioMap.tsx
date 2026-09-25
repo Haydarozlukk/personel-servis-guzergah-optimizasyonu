@@ -35,6 +35,7 @@ type ScenarioMapProps = {
   personNameById?: Map<string, string>
   pickMode?: boolean
   focusedLocation?: number[] | null
+  focusedStopId?: string | null
   searchMarker?: { location: number[]; address: string } | null
   onPickLocation?: (position: [number, number]) => void
   onMoveStopLocation?: (stopId: string, location: [number, number]) => void
@@ -55,9 +56,9 @@ const searchPinIcon = L.divIcon({
 
 const WALKING_LIMIT_METERS = 500
 
-const createStopIcon = (color = '#ffb703', borderColor = '#cc5d00', label = '') =>
+const createStopIcon = (color = '#ffb703', borderColor = '#cc5d00', label = '', blinking = false) =>
   L.divIcon({
-    className: 'op-stop-marker-icon',
+    className: `op-stop-marker-icon${blinking ? ' op-stop-marker-blink' : ''}`,
     html: `<div style="
       width: 22px;
       height: 22px;
@@ -255,6 +256,7 @@ export function ScenarioMap({
   personNameById,
   pickMode = false,
   focusedLocation,
+  focusedStopId,
   searchMarker,
   onPickLocation,
   onMoveStopLocation,
@@ -530,8 +532,8 @@ export function ScenarioMap({
                 position={center}
                 draggable={!!onMoveStopLocation}
                 icon={isDeparture
-                  ? createStopIcon(DEPARTURE_STOP_COLOR, DEPARTURE_STOP_BORDER)
-                  : createStopIcon('#ffb703')}
+                  ? createStopIcon(DEPARTURE_STOP_COLOR, DEPARTURE_STOP_BORDER, '', focusedStopId === stop.id)
+                  : createStopIcon('#ffb703', '#cc5d00', '', focusedStopId === stop.id)}
                 eventHandlers={{
                   dragend(e) {
                     const latlng = e.target.getLatLng()

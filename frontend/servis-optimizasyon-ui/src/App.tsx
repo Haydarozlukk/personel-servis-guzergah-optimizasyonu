@@ -22,7 +22,7 @@ import { UnknownLocationsPanel } from './components/UnknownLocationsPanel'
 import {
   addManualStop, addVehicle, assignPerson, assignPersonToStop, deletePerson, deleteUnassignedPerson, distributePersonsToPlan,
   addVehicles, moveStop, moveStopLocation, moveVehicle, moveVehicleStartLocation, parseBulkVehicleRows, removeStop, removeVehicle,
-  movePersonHomeLocation, unassignAllPersons, unassignPerson, updateVehicle,
+  movePersonHomeLocation, unassignAllPersons, unassignPerson, updatePersonId, updateVehicle,
 } from './lib/manualPlan'
 
 type ActiveOverlay = 'none' | 'add'
@@ -39,11 +39,13 @@ export function App({ onLogout }: { onLogout: () => Promise<void> }) {
   const [showVersions, setShowVersions] = useState(false)
   const [showUnassigned, setShowUnassigned] = useState(false)
   const [showAllPassengers, setShowAllPassengers] = useState(false)
+  const [showLongWalkers, setShowLongWalkers] = useState(false)
   const [showUnknownLocations, setShowUnknownLocations] = useState(false)
   const [optimizingVehicleId, setOptimizingVehicleId] = useState<string | null>(null)
   const [nearbySearch, setNearbySearch] = useState<NearbyServicesResponse | null>(null)
   const [stopPickVehicleId, setStopPickVehicleId] = useState<string | null>(null)
   const [focusedLocation, setFocusedLocation] = useState<number[] | null>(null)
+  const [focusedStopId, setFocusedStopId] = useState<string | null>(null)
   const [manualError, setManualError] = useState('')
   const persistenceQueue = useRef<Promise<unknown>>(Promise.resolve())
   const { scenarioState, scenarioResult, liveStatus, errorMessage, submitExcelImport, submitExcelAppend, submitFullReoptimization, replaceScenarioResult } =
@@ -79,7 +81,7 @@ export function App({ onLogout }: { onLogout: () => Promise<void> }) {
     setDraftLocation(position)
   }
 
-  function handleConfirmDraft(firstName: string, lastName: string) {
+  function handleConfirmDraft(firstName: string, lastName: string, vehicleId: string) {
     if (!draftLocation) return
     setPendingPersons((prev) => [
       ...prev,
@@ -88,6 +90,7 @@ export function App({ onLogout }: { onLogout: () => Promise<void> }) {
         name: `${firstName} ${lastName}`,
         firstName,
         lastName,
+        vehicleId: vehicleId || undefined,
         position: draftLocation,
       },
     ])
@@ -114,7 +117,10 @@ export function App({ onLogout }: { onLogout: () => Promise<void> }) {
       address: `${pending.firstName} ${pending.lastName}`,
       location: [pending.position[1], pending.position[0]],
     }))
-    const next = distributePersonsToPlan(scenarioResult, personsToDistribute)
+    let next = distributePersonsToPlan(scenarioResult, personsToDistribute)
+    for (const pending of pendingPersons) {
+      if (pending.vehicleId) next = assignPerson(next, pending.id, pending.vehicleId)
+    }
     persistManualPlan(next)
     setPendingPersons([])
     closeSheet()
@@ -310,6 +316,7 @@ export function App({ onLogout }: { onLogout: () => Promise<void> }) {
         personNameById={personNameById}
         pickMode={(activeOverlay === 'add' && isPicking && !draftLocation) || !!stopPickVehicleId}
         focusedLocation={focusedLocation}
+        focusedStopId={focusedStopId}
         searchMarker={nearbySearch ? { location: nearbySearch.location, address: nearbySearch.address } : null}
         onPickLocation={handleMapPick}
         onMoveStopLocation={handleMoveStopLocation}
@@ -325,6 +332,7 @@ export function App({ onLogout }: { onLogout: () => Promise<void> }) {
             onOpenVersions={() => scenarioResult && setShowVersions(true)}
             onExport={() => scenarioResult && void downloadPlanExport(scenarioResult.id)}
             onFullReoptimize={fullOptimizationEnabled ? () => void handleFullReoptimize() : undefined}
+            onOpenLongWalkers={() => scenarioResult && setShowLongWalkers(true)}
             onLogout={() => void onLogout()}
           />
           {scenarioResult && (
@@ -382,6 +390,7 @@ export function App({ onLogout }: { onLogout: () => Promise<void> }) {
             draftLocation={draftLocation}
             onLocationFound={handleLocationFound}
             onConfirmDraft={handleConfirmDraft}
+            vehicles={allVehicles}
             onCancelDraft={handleCancelDraft}
             pendingPersons={pendingPersons}
             onRemovePending={handleRemovePending}
@@ -420,7 +429,7 @@ export function App({ onLogout }: { onLogout: () => Promise<void> }) {
             persistManualPlan(next)
             setFocusedLocation(next.stops[next.stops.length - 1]?.location ?? null)
           }}
-          onSelectStop={(location) => setFocusedLocation(location)}
+          onSelectStop={(stopId, location) => { setFocusedStopId(stopId); setFocusedLocation(location) }}
           onDeleteVehicle={() => {
             if (!scenarioResult) return
             setSelectedVehicleId(null)
@@ -448,6 +457,24 @@ export function App({ onLogout }: { onLogout: () => Promise<void> }) {
         onClose={() => setShowAllPassengers(false)}
         onAssign={(personId, vehicleId) => persistManualPlan(assignPerson(scenarioResult, personId, vehicleId))}
         onDelete={(personId) => persistManualPlan(deletePerson(scenarioResult, personId))}
+        onUpdateId={(personId, nextId) => {
+          const next = updatePersonId(scenarioResult, personId, nextId)
+          if (next === scenarioResult && nextId.trim() !== personId) setManualError('Sicil numarası boş olamaz veya başka bir yolcuda zaten kullanılıyor.')
+          else persistManualPlan(next)
+        }}
+      />}
+      {showLongWalkers && scenarioResult && <AllPassengersPanel
+        plan={scenarioResult}
+        vehicles={allVehicles}
+        maxWalkingMeters={500}
+        onClose={() => setShowLongWalkers(false)}
+        onAssign={(personId, vehicleId) => persistManualPlan(assignPerson(scenarioResult, personId, vehicleId))}
+        onDelete={(personId) => persistManualPlan(deletePerson(scenarioResult, personId))}
+        onUpdateId={(personId, nextId) => {
+          const next = updatePersonId(scenarioResult, personId, nextId)
+          if (next === scenarioResult && nextId.trim() !== personId) setManualError('Sicil numarası boş olamaz veya başka bir yolcuda zaten kullanılıyor.')
+          else persistManualPlan(next)
+        }}
       />}
       {showUnknownLocations && scenarioResult && <UnknownLocationsPanel
         scenarioId={scenarioResult.id}

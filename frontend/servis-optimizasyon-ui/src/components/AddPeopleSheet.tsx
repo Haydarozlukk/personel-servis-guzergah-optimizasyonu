@@ -2,6 +2,7 @@ import { useState } from 'react'
 import type { ExcelImportForm as ExcelImportFormData } from '../lib/api'
 import { ExcelImportSheet, type ImportMode } from './ExcelImportSheet'
 import { PersonAddSheet, type PendingPerson } from './PersonAddSheet'
+import type { ScenarioVehicle } from '../lib/api'
 
 type AddPeopleSheetProps = {
   hasActivePlan: boolean
@@ -13,7 +14,8 @@ type AddPeopleSheetProps = {
   onTogglePicking: () => void
   draftLocation: [number, number] | null
   onLocationFound: (position: [number, number]) => void
-  onConfirmDraft: (firstName: string, lastName: string) => void
+  onConfirmDraft: (firstName: string, lastName: string, vehicleId: string) => void
+  vehicles: ScenarioVehicle[]
   onCancelDraft: () => void
   pendingPersons: PendingPerson[]
   onRemovePending: (id: string) => void
@@ -33,6 +35,7 @@ export function AddPeopleSheet({
   draftLocation,
   onLocationFound,
   onConfirmDraft,
+  vehicles,
   onCancelDraft,
   pendingPersons,
   onRemovePending,
@@ -60,6 +63,7 @@ export function AddPeopleSheet({
           draftLocation={draftLocation}
           onLocationFound={onLocationFound}
           onConfirmDraft={onConfirmDraft}
+          vehicles={vehicles}
           onCancelDraft={onCancelDraft}
           pendingPersons={pendingPersons}
           onRemovePending={onRemovePending}

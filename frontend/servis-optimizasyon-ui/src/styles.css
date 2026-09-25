@@ -1216,3 +1216,14 @@ input:focus-visible { outline: 3px solid rgba(37, 99, 235, .28); outline-offset:
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
 }
+@keyframes op-stop-blink {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.75); opacity: .25; }
+}
+
+.op-stop-marker-blink > div {
+  animation: op-stop-blink .55s ease-in-out 5;
+}
+
+.op-passenger-id { display: grid; gap: .2rem; font-size: .75rem; }
+.op-passenger-id input { width: 8rem; }

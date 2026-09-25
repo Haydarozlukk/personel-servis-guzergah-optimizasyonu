@@ -1,15 +1,17 @@
 import { useState } from 'react'
 import type { PersonPoint } from '../lib/person'
 import { geocodeAddress } from '../lib/geocode'
+import type { ScenarioVehicle } from '../lib/api'
 
-export type PendingPerson = PersonPoint & { firstName: string; lastName: string }
+export type PendingPerson = PersonPoint & { firstName: string; lastName: string; vehicleId?: string }
 
 type PersonAddSheetProps = {
   isPicking: boolean
   onTogglePicking: () => void
   draftLocation: [number, number] | null
   onLocationFound: (position: [number, number]) => void
-  onConfirmDraft: (firstName: string, lastName: string) => void
+  onConfirmDraft: (firstName: string, lastName: string, vehicleId: string) => void
+  vehicles: ScenarioVehicle[]
   onCancelDraft: () => void
   pendingPersons: PendingPerson[]
   onRemovePending: (id: string) => void
@@ -24,6 +26,7 @@ export function PersonAddSheet({
   draftLocation,
   onLocationFound,
   onConfirmDraft,
+  vehicles,
   onCancelDraft,
   pendingPersons,
   onRemovePending,
@@ -33,6 +36,7 @@ export function PersonAddSheet({
 }: PersonAddSheetProps) {
   const [firstName, setFirstName] = useState('')
   const [lastName, setLastName] = useState('')
+  const [vehicleId, setVehicleId] = useState('')
   const [addressQuery, setAddressQuery] = useState('')
   const [geocoding, setGeocoding] = useState(false)
   const [geocodeError, setGeocodeError] = useState('')
@@ -54,7 +58,7 @@ export function PersonAddSheet({
 
   function handleConfirm() {
     if (!firstName.trim() || !lastName.trim()) return
-    onConfirmDraft(firstName.trim(), lastName.trim())
+    onConfirmDraft(firstName.trim(), lastName.trim(), vehicleId)
     setFirstName('')
     setLastName('')
   }
@@ -102,6 +106,13 @@ export function PersonAddSheet({
           <label>
             <span>Soyad</span>
             <input type="text" value={lastName} onChange={(event) => setLastName(event.target.value)} />
+          </label>
+          <label>
+            <span>Servis</span>
+            <select value={vehicleId} onChange={(event) => setVehicleId(event.target.value)}>
+              <option value="">En uygun servisi otomatik seç</option>
+              {vehicles.map((vehicle) => <option key={vehicle.id} value={vehicle.id}>{vehicle.label || vehicle.id}</option>)}
+            </select>
           </label>
           <div className="op-sheet-actions">
             <button

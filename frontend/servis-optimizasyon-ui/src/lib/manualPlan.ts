@@ -177,6 +177,26 @@ export function deletePerson(plan: ScenarioResult, personId: string): ScenarioRe
   })
 }
 
+// Sicil numarası aktif plan içindeki tüm referanslarda aynı anda değiştirilir.
+// Bu işlem planı düzenleme yetkisi olan uzmanlar için ayrıca bir API rolü istemez.
+export function updatePersonId(plan: ScenarioResult, personId: string, nextPersonId: string): ScenarioResult {
+  const nextId = nextPersonId.trim()
+  if (!nextId || nextId === personId || !plan.persons.some((person) => person.id === personId)
+    || plan.persons.some((person) => person.id === nextId)) return plan
+  return recalculate({
+    ...plan,
+    persons: plan.persons.map((person) => person.id === personId ? { ...person, id: nextId } : person),
+    stops: plan.stops.map((stop) => ({
+      ...stop,
+      assignedPersonIds: stop.assignedPersonIds.map((id) => id === personId ? nextId : id),
+      walkingDistancesMeters: Object.fromEntries(Object.entries(stop.walkingDistancesMeters).map(([id, value]) => [id === personId ? nextId : id, value])),
+      walkingDurationsSeconds: Object.fromEntries(Object.entries(stop.walkingDurationsSeconds).map(([id, value]) => [id === personId ? nextId : id, value])),
+    })),
+    unassignedPersonIds: plan.unassignedPersonIds.map((id) => id === personId ? nextId : id),
+    unassignedPersons: plan.unassignedPersons?.map((person) => person.id === personId ? { ...person, id: nextId } : person),
+  })
+}
+
 // Eski çağrıları kırmadan, yalnızca atanmamış yolcu silme davranışını korur.
 export function deleteUnassignedPerson(plan: ScenarioResult, personId: string): ScenarioResult {
   if (!plan.unassignedPersonIds.includes(personId)) return plan
