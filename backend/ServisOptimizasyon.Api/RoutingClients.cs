@@ -143,6 +143,9 @@ public sealed class ScenarioOrchestrator(
         ScenarioInput input,
         CancellationToken cancellationToken)
     {
+        // Pasif yolcular senaryoda saklanır ve haritada gösterilir; ancak durak
+        // üretimi ile rota kapasitesine hiçbir şekilde dahil edilmez.
+        input = input with { Persons = input.Persons.Where(person => person.IsActive).ToList() };
         // Bir durağın talebi filodaki her araç tarafından taşınabilir olmalıdır.
         // En büyük kapasite kullanılırsa küçük araçlar büyük durakları alamaz ve
         // yeterli toplam kapasite olmasına rağmen VROOM bu araçları boş bırakır.

@@ -81,6 +81,34 @@ export function unassignPerson(plan: ScenarioResult, personId: string): Scenario
   return recalculate({ ...next, unassignedPersonIds, unassignedPersons })
 }
 
+// Pasif yolcu veri kaydında kalır; fakat hiçbir durak/rota veya atanmamış
+// yolcu sayısında yer almaz. Yeniden etkinleştirilince uzman atayana kadar
+// atanmamış listesine alınır.
+export function setPersonActive(plan: ScenarioResult, personId: string, isActive: boolean): ScenarioResult {
+  const person = plan.persons.find((item) => item.id === personId)
+  if (!person || (person.isActive ?? true) === isActive) return plan
+
+  if (!isActive) {
+    const next = withoutAssignment(plan, personId)
+    return recalculate({
+      ...next,
+      persons: next.persons.map((item) => item.id === personId ? { ...item, isActive: false } : item),
+      unassignedPersonIds: next.unassignedPersonIds.filter((id) => id !== personId),
+      unassignedPersons: next.unassignedPersons?.filter((item) => item.id !== personId),
+    })
+  }
+
+  return recalculate({
+    ...plan,
+    persons: plan.persons.map((item) => item.id === personId ? { ...item, isActive: true } : item),
+    unassignedPersonIds: Array.from(new Set([...plan.unassignedPersonIds, personId])),
+    unassignedPersons: [
+      ...(plan.unassignedPersons ?? []).filter((item) => item.id !== personId),
+      { id: personId, reason: 'manual_unassigned' as const },
+    ],
+  })
+}
+
 /// Rotalardaki tum yolcuları tek seferde atanmamış listesine taşır; her boşalan
 /// durak (ve rotası) silinir. `unassignPerson`'ı döngüde çağırmak her seferinde
 /// tüm planı yeniden hesaplattığı için büyük senaryolarda yavaş kalıyordu.
@@ -107,7 +135,7 @@ export function unassignAllPersons(plan: ScenarioResult): ScenarioResult {
 
 export function assignPerson(plan: ScenarioResult, personId: string, vehicleId: string): ScenarioResult {
   const person = plan.persons.find((item) => item.id === personId)
-  if (!person || !vehicleHasAvailableSeat(plan, vehicleId, personId)) return plan
+  if (!person || person.isActive === false || !vehicleHasAvailableSeat(plan, vehicleId, personId)) return plan
   let next = withoutAssignment(plan, personId)
   const baseId = `manuel-${personId}`.replace(/[^a-zA-Z0-9_-]/g, '-')
   let stopId = baseId

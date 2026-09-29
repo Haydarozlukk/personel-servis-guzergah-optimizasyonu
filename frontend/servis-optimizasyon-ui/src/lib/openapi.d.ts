@@ -531,6 +531,8 @@ export interface components {
             id: string;
             /** @description Excel'deki 'ad soyad' sütunu; yalnızca içe aktarımda doldurulur. */
             name?: string;
+            /** @description Pasif yolcu rotaya ve durağa dahil edilmez; haritada gri gösterilir. */
+            isActive?: boolean;
             location: components["schemas"]["Coordinate"];
         };
         Vehicle: {

@@ -15,6 +15,7 @@ export type PersonHome = {
 }
 
 export const UNASSIGNED_HOME_COLOR = '#94a3b8'
+export const INACTIVE_HOME_COLOR = '#6b7280'
 
 /// Personel → servis eşlemesi üç adım: rota → durak → duraktaki personel.
 /// Aynı kişi birden çok durakta görünürse ilk rota kazanır (rota, sonra durak sırası).
@@ -74,7 +75,7 @@ export function buildPersonHomes(input: {
       vehicleId,
       color: vehicleId
         ? input.vehicleColors.get(vehicleId) ?? UNASSIGNED_HOME_COLOR
-        : UNASSIGNED_HOME_COLOR,
+        : person.isActive === false ? INACTIVE_HOME_COLOR : UNASSIGNED_HOME_COLOR,
       stopId: stop?.id ?? null,
       walkingDistanceMeters: stop?.walkingDistancesMeters?.[person.id] ?? null,
       walkingDurationSeconds: stop?.walkingDurationsSeconds?.[person.id] ?? null,

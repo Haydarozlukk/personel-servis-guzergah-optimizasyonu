@@ -149,6 +149,7 @@ button { -webkit-tap-highlight-color: transparent; }
 .op-unassigned-candidates .op-btn { padding: .35rem .55rem; font-size: .68rem; }
 .op-all-passengers-note { margin: 0 0 .85rem; color: var(--muted); font-size: .76rem; line-height: 1.4; }
 .op-all-passenger select { min-width: min(300px, 45vw); }
+.op-passenger-active { display: inline-flex; align-items: center; gap: .35rem; white-space: nowrap; font-size: .8rem; }
 
 .op-version-save { margin-top: 1rem; padding-top: 1rem; border-top: 1px dashed var(--border-strong); }
 .op-version-save .op-admin-form { margin-top: .6rem; }

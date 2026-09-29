@@ -285,6 +285,10 @@ components:
         name:
           type: string
           description: Excel'deki 'ad soyad' sütunu; yalnızca içe aktarımda doldurulur.
+        isActive:
+          type: boolean
+          default: true
+          description: Pasif yolcu rotaya ve durağa dahil edilmez; haritada gri gösterilir.
         location: { $ref: '#/components/schemas/Coordinate' }
     Vehicle:
       type: object

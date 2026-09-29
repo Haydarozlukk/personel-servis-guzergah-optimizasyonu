@@ -26,6 +26,7 @@ public static class ManualPlanValidator
             Add("persons", "Yolcu koordinatları geçersiz.");
 
         var knownPersons = personIds.ToHashSet(StringComparer.Ordinal);
+        var activePersons = plan.Persons.Where(person => person.IsActive).Select(person => person.Id).ToHashSet(StringComparer.Ordinal);
         var knownVehicles = plan.Vehicles.Select(vehicle => vehicle.Id).ToHashSet(StringComparer.Ordinal);
         var stopIds = plan.Stops.Select(stop => stop.Id).ToList();
         var knownStops = stopIds.ToHashSet(StringComparer.Ordinal);
@@ -34,6 +35,7 @@ public static class ManualPlanValidator
 
         var assigned = plan.Stops.SelectMany(stop => stop.AssignedPersonIds).ToList();
         if (assigned.Any(id => !knownPersons.Contains(id))) Add("stops", "Duraklarda bilinmeyen yolcu bulunuyor.");
+        if (assigned.Any(id => !activePersons.Contains(id))) Add("stops", "Pasif yolcunun durağı olamaz.");
         if (assigned.Distinct(StringComparer.Ordinal).Count() != assigned.Count) Add("stops", "Bir yolcu birden fazla durağa atanamaz.");
 
         if (plan.Routes.Any(route => !knownVehicles.Contains(route.VehicleId))) Add("routes", "Bilinmeyen araca ait rota bulunuyor.");
@@ -66,9 +68,10 @@ public static class ManualPlanValidator
         if (unassigned.Count != plan.UnassignedPersonIds.Count)
             Add("unassignedPersonIds", "Atanmamış yolcu kimlikleri benzersiz olmalıdır.");
         if (unassigned.Any(id => !knownPersons.Contains(id))) Add("unassignedPersonIds", "Atanmamış listesinde bilinmeyen yolcu bulunuyor.");
+        if (unassigned.Any(id => !activePersons.Contains(id))) Add("unassignedPersonIds", "Pasif yolcu atanmamış listesinde olamaz.");
         if (unassigned.Overlaps(assigned)) Add("unassignedPersonIds", "Bir yolcu hem serviste hem atanmamış listesinde olamaz.");
         var accountedFor = assigned.Concat(unassigned).ToHashSet(StringComparer.Ordinal);
-        if (!accountedFor.SetEquals(knownPersons))
+        if (!accountedFor.SetEquals(activePersons))
             Add("persons", "Her yolcu bir servise atanmış veya servis atanmamış listesinde olmalıdır.");
 
         var reasonIds = plan.UnassignedPersons.Select(person => person.Id).ToHashSet(StringComparer.Ordinal);

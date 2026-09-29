@@ -22,7 +22,7 @@ import { UnknownLocationsPanel } from './components/UnknownLocationsPanel'
 import {
   addManualStop, addVehicle, assignPerson, assignPersonToStop, deletePerson, deleteUnassignedPerson, distributePersonsToPlan,
   addVehicles, moveStop, moveStopLocation, moveVehicle, moveVehicleStartLocation, parseBulkVehicleRows, removeStop, removeVehicle,
-  movePersonHomeLocation, unassignAllPersons, unassignPerson, updatePersonId, updateVehicle,
+  movePersonHomeLocation, setPersonActive, unassignAllPersons, unassignPerson, updatePersonId, updateVehicle,
 } from './lib/manualPlan'
 
 type ActiveOverlay = 'none' | 'add'
@@ -457,6 +457,7 @@ export function App({ onLogout }: { onLogout: () => Promise<void> }) {
         onClose={() => setShowAllPassengers(false)}
         onAssign={(personId, vehicleId) => persistManualPlan(assignPerson(scenarioResult, personId, vehicleId))}
         onDelete={(personId) => persistManualPlan(deletePerson(scenarioResult, personId))}
+        onSetActive={(personId, isActive) => persistManualPlan(setPersonActive(scenarioResult, personId, isActive))}
         onUpdateId={(personId, nextId) => {
           const next = updatePersonId(scenarioResult, personId, nextId)
           if (next === scenarioResult && nextId.trim() !== personId) setManualError('Sicil numarası boş olamaz veya başka bir yolcuda zaten kullanılıyor.')
@@ -470,6 +471,7 @@ export function App({ onLogout }: { onLogout: () => Promise<void> }) {
         onClose={() => setShowLongWalkers(false)}
         onAssign={(personId, vehicleId) => persistManualPlan(assignPerson(scenarioResult, personId, vehicleId))}
         onDelete={(personId) => persistManualPlan(deletePerson(scenarioResult, personId))}
+        onSetActive={(personId, isActive) => persistManualPlan(setPersonActive(scenarioResult, personId, isActive))}
         onUpdateId={(personId, nextId) => {
           const next = updatePersonId(scenarioResult, personId, nextId)
           if (next === scenarioResult && nextId.trim() !== personId) setManualError('Sicil numarası boş olamaz veya başka bir yolcuda zaten kullanılıyor.')
