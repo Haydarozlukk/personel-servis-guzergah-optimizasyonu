@@ -184,7 +184,8 @@ export function App({ onLogout }: { onLogout: () => Promise<void> }) {
   const realStops = scenarioResult?.stops ?? null
   const unassignedPersonIds = scenarioResult?.unassignedPersonIds ?? []
   const assignedPersonCount = scenarioResult
-    ? scenarioResult.persons.length - unassignedPersonIds.length
+    ? scenarioResult.persons.filter((person) =>
+      !unassignedPersonIds.includes(person.id) || Boolean(person.assignedVehicleId)).length
     : 0
   const stopSummary = scenarioResult?.stopGenerationSummary ?? null
   const warnings = scenarioResult?.warnings ?? []
@@ -215,7 +216,10 @@ export function App({ onLogout }: { onLogout: () => Promise<void> }) {
         id: vehicle.id,
         label: vehicle.label ?? null,
         capacity: vehicle.capacity,
-        load: route?.load ?? 0,
+        // Pasif yolcuların durağı olmadığı için route.load içinde yer almaz;
+        // fakat bağlı oldukları servisin yolcu sayısında görünmeye devam ederler.
+        load: (route?.load ?? 0) + (scenarioResult?.persons.filter((person) =>
+          person.isActive === false && person.assignedVehicleId === vehicle.id).length ?? 0),
         routed: !!route,
         color: vehicleColors.get(vehicle.id) ?? routeColors[0],
         summary: route

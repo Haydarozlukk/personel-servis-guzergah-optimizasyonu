@@ -63,7 +63,9 @@ export function buildPersonHomes(input: {
     const [longitude, latitude] = person.location ?? []
     if (!Number.isFinite(longitude) || !Number.isFinite(latitude)) continue
 
-    const vehicleId = vehicleByPerson.get(person.id) ?? null
+    // Pasif yolcunun durağı yoktur; buna rağmen bağlı olduğu servis harita
+    // filtresinde görünmeli. Aktif atamada duraktan türetilen değer önceliklidir.
+    const vehicleId = vehicleByPerson.get(person.id) ?? person.assignedVehicleId ?? null
     const stop = stopByPerson.get(person.id)
     // Bir servis seçiliyken yalnızca o servisin yolcuları kalır; atanmamışlar gizlenir.
     if (input.selectedVehicleId && vehicleId !== input.selectedVehicleId) continue

@@ -33,7 +33,10 @@ type VehicleDrawerProps = {
 export function VehicleDrawer(props: VehicleDrawerProps) {
   const { vehicleId, vehicle, route, stops, persons, vehicles, workplace, color, onClose } = props
   const routeStops = route ? route.stopIds.map((id) => stops.find((stop) => stop.id === id)).filter((stop): stop is ScenarioStop => !!stop) : []
-  const personIds = routeStops.flatMap((stop) => stop.assignedPersonIds)
+  const personIds = Array.from(new Set([
+    ...routeStops.flatMap((stop) => stop.assignedPersonIds),
+    ...persons.filter((person) => person.isActive === false && person.assignedVehicleId === vehicleId).map((person) => person.id),
+  ]))
   const personMap = useMemo(() => new Map(persons.map((person) => [person.id, person])), [persons])
   const unassignedPeople = persons.filter((person) => props.unassignedPersonIds.includes(person.id))
   const [plate, setPlate] = useState(vehicle?.plate ?? '')
