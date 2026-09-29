@@ -89,16 +89,20 @@ export function setPersonActive(plan: ScenarioResult, personId: string, isActive
   if (!person || (person.isActive ?? true) === isActive) return plan
 
   if (!isActive) {
+    const assignedStopId = plan.stops.find((stop) => stop.assignedPersonIds.includes(personId))?.id
+    const assignedVehicleId = assignedStopId
+      ? plan.routes.find((route) => route.stopIds.includes(assignedStopId))?.vehicleId ?? person.assignedVehicleId
+      : person.assignedVehicleId
     const next = withoutAssignment(plan, personId)
     return recalculate({
       ...next,
-      persons: next.persons.map((item) => item.id === personId ? { ...item, isActive: false } : item),
+      persons: next.persons.map((item) => item.id === personId ? { ...item, isActive: false, assignedVehicleId } : item),
       unassignedPersonIds: next.unassignedPersonIds.filter((id) => id !== personId),
       unassignedPersons: next.unassignedPersons?.filter((item) => item.id !== personId),
     })
   }
 
-  return recalculate({
+  const enabled = recalculate({
     ...plan,
     persons: plan.persons.map((item) => item.id === personId ? { ...item, isActive: true } : item),
     unassignedPersonIds: Array.from(new Set([...plan.unassignedPersonIds, personId])),
@@ -107,6 +111,9 @@ export function setPersonActive(plan: ScenarioResult, personId: string, isActive
       { id: personId, reason: 'manual_unassigned' as const },
     ],
   })
+  return person.assignedVehicleId && enabled.vehicles.some((vehicle) => vehicle.id === person.assignedVehicleId)
+    ? assignPerson(enabled, personId, person.assignedVehicleId)
+    : enabled
 }
 
 /// Rotalardaki tum yolcuları tek seferde atanmamış listesine taşır; her boşalan
@@ -158,6 +165,7 @@ export function assignPerson(plan: ScenarioResult, personId: string, vehicleId: 
     : [...next.routes, emptyRoute(vehicleId, stopId)]
   next = {
     ...next,
+    persons: next.persons.map((item) => item.id === personId ? { ...item, assignedVehicleId: vehicleId } : item),
     stops: [...next.stops, stop],
     routes,
     unassignedPersonIds: next.unassignedPersonIds.filter((id) => id !== personId),

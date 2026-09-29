@@ -289,6 +289,9 @@ components:
           type: boolean
           default: true
           description: Pasif yolcu rotaya ve durağa dahil edilmez; haritada gri gösterilir.
+        assignedVehicleId:
+          type: [string, 'null']
+          description: Yolcunun bağlı olduğu servis; pasifken yalnızca hat bilgisini korur.
         location: { $ref: '#/components/schemas/Coordinate' }
     Vehicle:
       type: object

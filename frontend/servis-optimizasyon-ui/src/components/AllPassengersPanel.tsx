@@ -40,7 +40,7 @@ export function AllPassengersPanel({
       <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Ad, soyad veya sicil" autoFocus />
     </label>
     {visiblePeople.map((person) => {
-      const currentVehicleId = vehicleByPersonId.get(person.id) ?? ''
+      const currentVehicleId = vehicleByPersonId.get(person.id) ?? person.assignedVehicleId ?? ''
       const isActive = person.isActive ?? true
       return <article className="op-admin-user op-all-passenger" key={person.id}>
         <div><strong>{person.name || person.id}</strong><span>{isActive ? (currentVehicleId || 'servis atanmamış') : 'pasif'}{maxWalkingMeters ? ` · ${Math.round(plan.stops.find((stop) => stop.assignedPersonIds.includes(person.id))?.walkingDistancesMeters[person.id] ?? 0)} m` : ''}</span></div>

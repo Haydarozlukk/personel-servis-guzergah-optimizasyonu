@@ -533,6 +533,8 @@ export interface components {
             name?: string;
             /** @description Pasif yolcu rotaya ve durağa dahil edilmez; haritada gri gösterilir. */
             isActive?: boolean;
+            /** @description Yolcunun bağlı olduğu servis; pasifken yalnızca hat bilgisini korur. */
+            assignedVehicleId?: string | null;
             location: components["schemas"]["Coordinate"];
         };
         Vehicle: {

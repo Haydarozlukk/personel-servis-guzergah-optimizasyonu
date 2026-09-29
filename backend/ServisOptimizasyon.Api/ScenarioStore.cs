@@ -60,6 +60,7 @@ public sealed class PostgresScenarioStore(NpgsqlDataSource dataSource) : IScenar
           person_id text NOT NULL,
           person_name text,
           is_active boolean NOT NULL DEFAULT true,
+          assigned_vehicle_id text,
           location geography(Point, 4326) NOT NULL,
           PRIMARY KEY (scenario_id, person_id)
         );
@@ -135,6 +136,7 @@ public sealed class PostgresScenarioStore(NpgsqlDataSource dataSource) : IScenar
           ON scenarios (created_at DESC);
         ALTER TABLE scenario_persons ADD COLUMN IF NOT EXISTS person_name text;
         ALTER TABLE scenario_persons ADD COLUMN IF NOT EXISTS is_active boolean NOT NULL DEFAULT true;
+        ALTER TABLE scenario_persons ADD COLUMN IF NOT EXISTS assigned_vehicle_id text;
         ALTER TABLE scenario_vehicles ALTER COLUMN start_location DROP NOT NULL;
         ALTER TABLE scenario_vehicles ADD COLUMN IF NOT EXISTS plate text;
         ALTER TABLE scenario_vehicles ADD COLUMN IF NOT EXISTS reserved_seats integer NOT NULL DEFAULT 0;
@@ -228,7 +230,7 @@ public sealed class PostgresScenarioStore(NpgsqlDataSource dataSource) : IScenar
         var persons = new List<PersonInput>();
         await using (var command = new NpgsqlCommand(
             """
-            SELECT person_id, ST_X(location::geometry), ST_Y(location::geometry), person_name, is_active
+            SELECT person_id, ST_X(location::geometry), ST_Y(location::geometry), person_name, is_active, assigned_vehicle_id
             FROM scenario_persons WHERE scenario_id = @id ORDER BY person_id
             """,
             connection))
@@ -239,7 +241,7 @@ public sealed class PostgresScenarioStore(NpgsqlDataSource dataSource) : IScenar
                 persons.Add(new PersonInput(
                     reader.GetString(0),
                     [reader.GetDouble(1), reader.GetDouble(2)],
-                    reader.IsDBNull(3) ? null : reader.GetString(3), reader.GetBoolean(4)));
+                    reader.IsDBNull(3) ? null : reader.GetString(3), reader.GetBoolean(4), reader.IsDBNull(5) ? null : reader.GetString(5)));
         }
 
         var vehicles = new List<VehicleInput>();
@@ -692,7 +694,7 @@ public sealed class PostgresScenarioStore(NpgsqlDataSource dataSource) : IScenar
         var persons = new List<PersonInput>();
         await using var command = new NpgsqlCommand(
             """
-            SELECT person_id, ST_X(location::geometry), ST_Y(location::geometry), person_name, is_active
+            SELECT person_id, ST_X(location::geometry), ST_Y(location::geometry), person_name, is_active, assigned_vehicle_id
             FROM scenario_persons WHERE scenario_id = @id ORDER BY person_id
             """, connection);
         command.Parameters.AddWithValue("id", scenarioId);
@@ -702,7 +704,7 @@ public sealed class PostgresScenarioStore(NpgsqlDataSource dataSource) : IScenar
             persons.Add(new PersonInput(
                 reader.GetString(0),
                 [reader.GetDouble(1), reader.GetDouble(2)],
-                reader.IsDBNull(3) ? null : reader.GetString(3), reader.GetBoolean(4)));
+                reader.IsDBNull(3) ? null : reader.GetString(3), reader.GetBoolean(4), reader.IsDBNull(5) ? null : reader.GetString(5)));
         }
         return persons;
     }
@@ -863,8 +865,8 @@ public sealed class PostgresScenarioStore(NpgsqlDataSource dataSource) : IScenar
         {
             await using var command = new NpgsqlCommand(
                 """
-                INSERT INTO scenario_persons (scenario_id, person_id, person_name, is_active, location)
-                VALUES (@id, @person, @name, @isActive, ST_SetSRID(ST_MakePoint(@lon, @lat), 4326)::geography)
+                INSERT INTO scenario_persons (scenario_id, person_id, person_name, is_active, assigned_vehicle_id, location)
+                VALUES (@id, @person, @name, @isActive, @assignedVehicleId, ST_SetSRID(ST_MakePoint(@lon, @lat), 4326)::geography)
                 """,
                 connection,
                 transaction);
@@ -872,6 +874,7 @@ public sealed class PostgresScenarioStore(NpgsqlDataSource dataSource) : IScenar
             command.Parameters.AddWithValue("person", person.Id);
             command.Parameters.AddWithValue("name", (object?)person.Name ?? DBNull.Value);
             command.Parameters.AddWithValue("isActive", person.IsActive);
+            command.Parameters.AddWithValue("assignedVehicleId", (object?)person.AssignedVehicleId ?? DBNull.Value);
             command.Parameters.AddWithValue("lon", person.Location[0]);
             command.Parameters.AddWithValue("lat", person.Location[1]);
             await command.ExecuteNonQueryAsync(cancellationToken);
