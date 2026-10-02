@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { ScenarioResult } from './api'
-import { assignPerson, assignPersonToStop, deletePerson, deleteUnassignedPerson, movePersonHomeLocation, moveStop, moveVehicle, unassignPerson, updateVehicle, vehicleHasAvailableSeat } from './manualPlan'
+import { addManualStop, assignPerson, assignPersonToStop, deletePerson, deleteUnassignedPerson, movePersonHomeLocation, moveStop, moveVehicle, unassignPerson, updateVehicle, vehicleHasAvailableSeat } from './manualPlan'
 
 function plan(): ScenarioResult {
   return {
@@ -47,6 +47,15 @@ describe('manual plan operations', () => {
     expect(deleted.persons.map((person) => person.id)).not.toContain('p1')
     expect(deleted.stops).toHaveLength(0)
     expect(deleted.routes[0].stopIds).toEqual([])
+  })
+
+  it('keeps an empty manual stop in the route after passenger changes', () => {
+    const withManualStop = addManualStop(plan(), 'v1', [32.83, 39.93])
+    const manualStopId = withManualStop.stops.find((stop) => stop.id.startsWith('manuel-durak-'))!.id
+    const next = unassignPerson(withManualStop, 'p1')
+
+    expect(next.stops.find((stop) => stop.id === manualStopId)?.assignedPersonIds).toEqual([])
+    expect(next.routes.find((route) => route.vehicleId === 'v1')?.stopIds).toContain(manualStopId)
   })
 
   it('recalculates effective capacity when reserved seats change', () => {

@@ -16,6 +16,10 @@ function normalizeLngLat(location: number[]): [number, number] {
   return [location[0] ?? 0, location[1] ?? 0]
 }
 
+function isManualStop(stop: ScenarioStop): boolean {
+  return stop.id.startsWith('manuel-durak-')
+}
+
 function recalculate(plan: ScenarioResult): ScenarioResult {
   const personMap = new Map(plan.persons.map((person) => [person.id, person]))
   const stops = plan.stops.map((stop) => {
@@ -56,7 +60,9 @@ function withoutAssignment(plan: ScenarioResult, personId: string): ScenarioResu
   const emptied = new Set<string>()
   const stops = plan.stops.map((stop) => {
     const assignedPersonIds = stop.assignedPersonIds.filter((id) => id !== personId)
-    if (assignedPersonIds.length === 0) emptied.add(stop.id)
+    // Kullanıcının güzergâha eklediği boş durak, yolcu olmasa da rota noktasıdır.
+    // Yalnızca yolcusu yeni boşalan otomatik duraklar kaldırılır.
+    if (stop.assignedPersonIds.includes(personId) && assignedPersonIds.length === 0 && !isManualStop(stop)) emptied.add(stop.id)
     const walkingDistancesMeters = { ...stop.walkingDistancesMeters }
     const walkingDurationsSeconds = { ...stop.walkingDurationsSeconds }
     delete walkingDistancesMeters[personId]
@@ -116,8 +122,8 @@ export function setPersonActive(plan: ScenarioResult, personId: string, isActive
     : enabled
 }
 
-/// Rotalardaki tum yolcuları tek seferde atanmamış listesine taşır; her boşalan
-/// durak (ve rotası) silinir. `unassignPerson`'ı döngüde çağırmak her seferinde
+/// Rotalardaki tum yolcuları tek seferde atanmamış listesine taşır; otomatik
+/// boş duraklar silinir, kullanıcının eklediği rota durakları korunur. `unassignPerson`'ı döngüde çağırmak her seferinde
 /// tüm planı yeniden hesaplattığı için büyük senaryolarda yavaş kalıyordu.
 export function unassignAllPersons(plan: ScenarioResult): ScenarioResult {
   const assignedPersonIds = plan.stops.flatMap((stop) => stop.assignedPersonIds)
@@ -129,15 +135,22 @@ export function unassignAllPersons(plan: ScenarioResult): ScenarioResult {
     ...(plan.unassignedPersons ?? []).filter((person) => !assignedIdSet.has(person.id)),
     ...assignedPersonIds.map((id) => ({ id, reason: 'manual_unassigned' as const })),
   ]
+  const manualStopIds = new Set(plan.stops.filter(isManualStop).map((stop) => stop.id))
   const routes = plan.routes.map((route) => ({
     ...route,
     geometry: '',
     distanceMeters: 0,
     durationSeconds: 0,
-    stopIds: [],
+    stopIds: route.stopIds.filter((stopId) => manualStopIds.has(stopId)),
   }))
 
-  return recalculate({ ...plan, stops: [], routes, unassignedPersonIds, unassignedPersons })
+  return recalculate({
+    ...plan,
+    stops: plan.stops.filter(isManualStop),
+    routes,
+    unassignedPersonIds,
+    unassignedPersons,
+  })
 }
 
 export function assignPerson(plan: ScenarioResult, personId: string, vehicleId: string): ScenarioResult {
